@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { db } from "@/lib/db";
 import { workoutSessions, programDays, workoutSets } from "@/lib/db/schema";
 import { desc, eq, isNotNull, sql } from "drizzle-orm";
