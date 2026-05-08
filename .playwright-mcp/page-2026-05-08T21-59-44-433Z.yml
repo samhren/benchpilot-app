@@ -1,0 +1,69 @@
+- generic [ref=e1]:
+  - main [ref=e3]:
+    - main [ref=e107]:
+      - generic [ref=e108]:
+        - button [ref=e109] [cursor=pointer]:
+          - img [ref=e110]
+        - generic [ref=e112]:
+          - generic [ref=e113]: Upper A
+          - generic [ref=e114]: Heavy Bench
+        - generic [ref=e115]: 0:32
+      - generic [ref=e118]: Bench Press · Set 4 of 5
+      - generic [ref=e125]:
+        - generic [ref=e126]: Top set · 75% TM
+        - generic [ref=e127]:
+          - generic [ref=e128]: "155"
+          - generic [ref=e129]: lb
+        - generic [ref=e130]:
+          - text: "Prescribed:"
+          - generic [ref=e131]: 5 reps
+      - button "Plates · 45 lb bar 45 + 10 / side" [ref=e133] [cursor=pointer]:
+        - generic [ref=e134]:
+          - img [ref=e136]
+          - generic [ref=e140]:
+            - generic [ref=e141]: Plates · 45 lb bar
+            - text: 45 + 10 / side
+      - generic [ref=e142]:
+        - generic [ref=e143]: Reps performed
+        - generic [ref=e144]:
+          - button "−" [ref=e145] [cursor=pointer]
+          - generic [ref=e146]:
+            - generic [ref=e147]: "5"
+            - generic [ref=e148]: reps
+          - button "＋" [ref=e149] [cursor=pointer]
+      - generic [ref=e151]:
+        - generic [ref=e152]:
+          - generic [ref=e153]: RIR · reps in reserve
+          - generic [ref=e154]: "2"
+        - generic [ref=e155]:
+          - button "0" [ref=e156] [cursor=pointer]
+          - button "1" [ref=e157] [cursor=pointer]
+          - button "2" [ref=e158] [cursor=pointer]
+          - button "3" [ref=e159] [cursor=pointer]
+          - button "4" [ref=e160] [cursor=pointer]
+      - generic [ref=e161]:
+        - generic [ref=e162]:
+          - text: "Weight:"
+          - generic [ref=e163]: 155 lb
+        - button "Override" [ref=e164] [cursor=pointer]
+      - generic [ref=e165]:
+        - button "Log set" [active] [ref=e166] [cursor=pointer]:
+          - img [ref=e167]
+          - text: Log set
+        - button "Skip this set" [ref=e169] [cursor=pointer]
+      - generic [ref=e183] [cursor=pointer]:
+        - img [ref=e184]
+        - generic [ref=e187]:
+          - generic [ref=e188]: Rest
+          - text: 2:58
+        - button "Skip" [ref=e189]
+      - button "Finish workout" [ref=e171] [cursor=pointer]
+  - region "Notifications alt+T"
+  - status [ref=e210]:
+    - generic [ref=e211]:
+      - img [ref=e213]
+      - generic [ref=e215]:
+        - text: Static route
+        - button "Hide static indicator" [ref=e216] [cursor=pointer]:
+          - img [ref=e217]
+  - alert [ref=e106]

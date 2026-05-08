@@ -1,0 +1,64 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - main [ref=e4]:
+      - generic [ref=e5]:
+        - button [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+        - generic [ref=e9]:
+          - generic [ref=e10]: Upper C
+          - generic [ref=e11]: Bench AMRAP + Arms
+        - generic [ref=e12]: 1:48
+      - generic [ref=e16]: Close-Grip Bench Press · Set 1 of 2
+      - generic [ref=e19]:
+        - generic [ref=e20]: Working set
+        - generic [ref=e21]:
+          - generic [ref=e22]: —
+          - generic [ref=e23]: lb
+        - generic [ref=e24]:
+          - text: "Prescribed:"
+          - generic [ref=e100]: 7 reps
+          - text: · RIR 2
+      - generic [ref=e37]:
+        - generic [ref=e38]: Reps performed
+        - generic [ref=e39]:
+          - button "−" [ref=e40] [cursor=pointer]
+          - generic [ref=e41]:
+            - generic [ref=e42]: "7"
+            - generic [ref=e43]: reps
+          - button "＋" [ref=e44] [cursor=pointer]
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - generic [ref=e104]: RIR · reps in reserve
+          - generic [ref=e105]: "1"
+        - generic [ref=e106]:
+          - button "0" [ref=e107] [cursor=pointer]
+          - button "1" [ref=e108] [cursor=pointer]
+          - button "2" [ref=e109] [cursor=pointer]
+          - button "3" [ref=e110] [cursor=pointer]
+          - button "4" [ref=e111] [cursor=pointer]
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - text: "Weight:"
+          - generic [ref=e47]: — lb
+        - button "Override" [ref=e48] [cursor=pointer]
+      - generic [ref=e49]:
+        - button "Log set" [ref=e112] [cursor=pointer]:
+          - img [ref=e51]
+          - text: Log set
+        - button "Skip this set" [ref=e53] [cursor=pointer]
+      - generic [ref=e114] [cursor=pointer]:
+        - img [ref=e115]
+        - generic [ref=e118]:
+          - generic [ref=e119]: Rest
+          - text: 2:54
+        - button "Skip" [ref=e120]
+      - button "Finish workout" [ref=e55] [cursor=pointer]
+  - region "Notifications alt+T"
+  - status [ref=e121]:
+    - generic [ref=e122]:
+      - img [ref=e124]
+      - generic [ref=e126]:
+        - text: Static route
+        - button "Hide static indicator" [ref=e127] [cursor=pointer]:
+          - img [ref=e128]
+  - alert [ref=e56]

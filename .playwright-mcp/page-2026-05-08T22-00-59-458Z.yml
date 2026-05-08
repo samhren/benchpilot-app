@@ -1,0 +1,57 @@
+- generic [ref=e1]:
+  - main [ref=e3]:
+    - main [ref=e4]:
+      - generic [ref=e5]:
+        - button [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+        - generic [ref=e9]:
+          - generic [ref=e10]: Upper C
+          - generic [ref=e11]: Bench AMRAP + Arms
+        - generic [ref=e12]: 0:42
+      - generic [ref=e14]:
+        - generic [ref=e15]: AMRAP
+        - generic [ref=e16]: Bench Press · Set 1 of 1
+      - generic [ref=e19]:
+        - generic [ref=e20]: Top set · 80% TM
+        - generic [ref=e21]:
+          - generic [ref=e22]: "165"
+          - generic [ref=e23]: lb
+        - generic [ref=e24]: Top set · 1 × max reps
+        - generic [ref=e25]:
+          - text: "Last:"
+          - generic [ref=e26]: 5 reps
+          - text: "@ 155 lb"
+      - button "Plates · 45 lb bar 45 + 10 + 5 / side" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]:
+          - img [ref=e31]
+          - generic [ref=e35]:
+            - generic [ref=e36]: Plates · 45 lb bar
+            - text: 45 + 10 + 5 / side
+      - generic [ref=e37]:
+        - generic [ref=e38]: Reps performed
+        - generic [ref=e39]:
+          - button "−" [ref=e40] [cursor=pointer]
+          - generic [ref=e41]:
+            - generic [ref=e42]: "5"
+            - generic [ref=e43]: reps
+          - button "＋" [active] [ref=e44] [cursor=pointer]
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - text: "Weight:"
+          - generic [ref=e47]: 165 lb
+        - button "Override" [ref=e48] [cursor=pointer]
+      - generic [ref=e49]:
+        - button "Log AMRAP set" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+          - text: Log AMRAP set
+        - button "Skip this set" [ref=e53] [cursor=pointer]
+      - button "Finish workout" [ref=e55] [cursor=pointer]
+  - region "Notifications alt+T"
+  - status [ref=e57]:
+    - generic [ref=e58]:
+      - img [ref=e60]
+      - generic [ref=e62]:
+        - text: Static route
+        - button "Hide static indicator" [ref=e63] [cursor=pointer]:
+          - img [ref=e64]
+  - alert [ref=e56]

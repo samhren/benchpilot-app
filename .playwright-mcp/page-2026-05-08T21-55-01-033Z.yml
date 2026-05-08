@@ -1,0 +1,14 @@
+- generic [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]: BP
+          - generic [ref=e7]: BenchPilot
+        - generic [ref=e8]: Lifting tracker
+      - generic [ref=e9]:
+        - generic [ref=e10]: Password
+        - textbox "••••••" [active] [ref=e12]
+        - button "Unlock" [ref=e13] [cursor=pointer]
+      - generic [ref=e14]: v1.0 · single user
+  - region "Notifications alt+T"
