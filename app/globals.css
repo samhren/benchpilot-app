@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 100%;
+    --primary: 0 100% 59%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 11%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 58%;
+    --accent: 0 100% 59%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 100% 59%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 0 100% 59%;
+    --radius: 0.875rem;
+
+    --bp-bg: #0a0a0a;
+    --bp-surface: #141414;
+    --bp-surface2: #1c1c1c;
+    --bp-border: #262626;
+    --bp-border-soft: #1f1f1f;
+    --bp-text: #ffffff;
+    --bp-text-muted: rgba(255, 255, 255, 0.58);
+    --bp-text-dim: rgba(255, 255, 255, 0.34);
+    --bp-text-faint: rgba(255, 255, 255, 0.18);
+    --bp-accent: #ff2f2f;
+    --bp-accent-soft: rgba(255, 47, 47, 0.14);
+    --bp-accent-line: rgba(255, 47, 47, 0.4);
+    --bp-green: #2bd05f;
+    --bp-amber: #ffb020;
+  }
+
+  html, body {
+    background: var(--bp-bg);
+    color: var(--bp-text);
+    color-scheme: dark;
+  }
+
+  body {
+    font-family: 'Inter Tight', -apple-system, system-ui, sans-serif;
+    letter-spacing: -0.005em;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .font-mono, .mono {
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--bp-text-dim);
+  }
+
+  .surface {
+    background: var(--bp-surface);
+    border: 1px solid var(--bp-border-soft);
+    border-radius: 18px;
+  }
+
+  /* Hide scrollbars on phone-like surfaces */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+input, button, textarea, select {
+  font: inherit;
+}
