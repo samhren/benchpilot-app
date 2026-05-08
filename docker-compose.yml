@@ -1,0 +1,13 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: benchpilot
+      POSTGRES_PASSWORD: benchpilot_dev
+      POSTGRES_DB: benchpilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - benchpilot_pg_data:/var/lib/postgresql/data
+volumes:
+  benchpilot_pg_data:

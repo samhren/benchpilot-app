@@ -1,0 +1,13 @@
+node_modules
+.next
+.env
+.env.local
+.DS_Store
+*.log
+.vercel
+playwright-report
+test-results
+.turbo
+public/sw.js
+public/sw.js.map
+public/swe-worker-*.js
