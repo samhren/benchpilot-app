@@ -1,0 +1,12 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - button "← Back" [ref=e5] [cursor=pointer]
+      - generic [ref=e6]: Off-schedule
+      - generic [ref=e7]:
+        - generic [ref=e8]: Extra session
+        - generic [ref=e9]: adhoc
+      - generic [ref=e10]: Build a one-off workout. Doesn't shift the program.
+      - button "+ Add exercise" [ref=e12] [cursor=pointer]
+  - region "Notifications alt+T"
+  - alert [ref=e13]

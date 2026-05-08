@@ -5,15 +5,19 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import {
   bodyWeightLogs,
+  dayStatus,
+  exercises,
   lifts,
+  programExercises,
   programs,
+  sessionExercises,
   settings,
   tmHistory,
   workoutSessions,
   workoutSets,
 } from "@/lib/db/schema";
 import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
-import { resolveTrainingMax } from "@/lib/programming/training-max";
+import { resolveTrainingMax, resolveBenchPrescription } from "@/lib/programming/training-max";
 import { applyAmrapBump } from "@/lib/programming/amrap";
 
 export async function logBodyWeightAction(weightLb: number) {
@@ -87,25 +91,118 @@ export async function manualSetTmAction(input: z.infer<typeof ManualTmSchema>) {
   return { ok: true as const };
 }
 
-export async function startSessionAction(programDayId: string) {
-  // Find an existing in-flight session for this day, or start new
+const StartSessionSchema = z.object({
+  programDayId: z.string().uuid(),
+  deloadFactor: z.number().min(0.3).max(1).optional(),
+});
+
+export async function startSessionAction(
+  programDayIdOrInput: string | z.infer<typeof StartSessionSchema>,
+) {
+  const input =
+    typeof programDayIdOrInput === "string"
+      ? { programDayId: programDayIdOrInput }
+      : StartSessionSchema.parse(programDayIdOrInput);
+  const { programDayId, deloadFactor } = input;
+
+  // Find an existing in-flight session for this day, or start new.
+  // If deloadFactor differs from the existing session, scrap the snapshot and rebuild it
+  // (only safe when no sets have been logged yet).
   const [existing] = await db
     .select()
     .from(workoutSessions)
     .where(and(eq(workoutSessions.programDayId, programDayId), isNull(workoutSessions.completedAt)))
     .orderBy(desc(workoutSessions.startedAt))
     .limit(1);
-  if (existing) return { ok: true as const, sessionId: existing.id };
+  if (existing) {
+    const wantsDifferentFactor =
+      deloadFactor != null && Math.abs((existing.deloadFactor ?? 1) - deloadFactor) > 0.001;
+    if (!wantsDifferentFactor) {
+      return { ok: true as const, sessionId: existing.id };
+    }
+    const [hasSets] = await db
+      .select()
+      .from(workoutSets)
+      .where(eq(workoutSets.sessionId, existing.id))
+      .limit(1);
+    if (hasSets) {
+      return { ok: true as const, sessionId: existing.id };
+    }
+    // Rebuild: drop snapshot, update factor, recreate snapshot below.
+    await db.delete(sessionExercises).where(eq(sessionExercises.sessionId, existing.id));
+    await db
+      .update(workoutSessions)
+      .set({ deloadFactor: deloadFactor ?? 1 })
+      .where(eq(workoutSessions.id, existing.id));
+    await rebuildSnapshot(existing.id, programDayId, deloadFactor ?? 1);
+    return { ok: true as const, sessionId: existing.id };
+  }
+
   const [created] = await db
     .insert(workoutSessions)
-    .values({ programDayId })
+    .values({
+      programDayId,
+      status: "in_progress",
+      deloadFactor: deloadFactor ?? 1,
+    })
     .returning();
+
+  await rebuildSnapshot(created.id, programDayId, deloadFactor ?? 1);
   return { ok: true as const, sessionId: created.id };
+}
+
+async function rebuildSnapshot(sessionId: string, programDayId: string, factor: number) {
+  const tmplRows = await db
+    .select()
+    .from(programExercises)
+    .where(eq(programExercises.programDayId, programDayId))
+    .orderBy(programExercises.orderIndex);
+
+  const benchLift = await db
+    .select()
+    .from(lifts)
+    .where(eq(lifts.name, "bench_press"))
+    .limit(1);
+  const benchTm = benchLift[0]?.trainingMax ?? null;
+
+  if (!tmplRows.length) return;
+
+  await db.insert(sessionExercises).values(
+    tmplRows.map((pe) => {
+      let weightPrescribed: number | null = null;
+      if (pe.percentageOfTm != null && benchTm != null) {
+        weightPrescribed = resolveBenchPrescription(pe.percentageOfTm * factor, benchTm);
+      }
+      let wavePlan: unknown = pe.wavePlan;
+      if (Array.isArray(pe.wavePlan) && factor !== 1) {
+        wavePlan = (pe.wavePlan as Array<{ percentage: number; sets: number; reps: number; isAmrap?: boolean }>).map(
+          (w) => ({ ...w, percentage: w.percentage * factor }),
+        );
+      }
+      return {
+        sessionId,
+        programExerciseId: pe.id,
+        exerciseId: pe.exerciseId,
+        orderIndex: pe.orderIndex,
+        prescriptionType: pe.prescriptionType,
+        sets: pe.sets,
+        reps: pe.reps,
+        percentageOfTm: pe.percentageOfTm != null ? pe.percentageOfTm * factor : null,
+        weightPrescribed,
+        rirTarget: pe.rirTarget,
+        liftId: pe.liftId,
+        wavePlan: wavePlan as never,
+        isAmrapTopSet: pe.isAmrapTopSet,
+        notes: pe.notes,
+      };
+    }),
+  );
 }
 
 const LogSetSchema = z.object({
   sessionId: z.string().uuid(),
-  programExerciseId: z.string().uuid(),
+  sessionExerciseId: z.string().uuid().optional(),
+  programExerciseId: z.string().uuid().optional(),
   exerciseId: z.string().uuid(),
   setNumber: z.number().int().positive(),
   repsPrescribed: z.number().int().nullable(),
@@ -124,12 +221,171 @@ export async function logSetAction(input: z.infer<typeof LogSetSchema>) {
 }
 
 export async function completeSessionAction(sessionId: string) {
+  // Mark any still-pending session_exercises as skipped, but only set status=completed on the session.
   await db
     .update(workoutSessions)
-    .set({ completedAt: new Date() })
+    .set({ completedAt: new Date(), status: "completed" })
     .where(eq(workoutSessions.id, sessionId));
+  await db
+    .update(sessionExercises)
+    .set({ status: "skipped" })
+    .where(and(eq(sessionExercises.sessionId, sessionId), eq(sessionExercises.status, "pending")));
   revalidatePath("/");
   revalidatePath("/history");
+  return { ok: true as const };
+}
+
+export async function endSessionEarlyAction(sessionId: string) {
+  await db
+    .update(workoutSessions)
+    .set({ completedAt: new Date(), status: "partial" })
+    .where(eq(workoutSessions.id, sessionId));
+  await db
+    .update(sessionExercises)
+    .set({ status: "skipped" })
+    .where(and(eq(sessionExercises.sessionId, sessionId), eq(sessionExercises.status, "pending")));
+  revalidatePath("/");
+  revalidatePath("/history");
+  return { ok: true as const };
+}
+
+const SwapSchema = z.object({
+  sessionExerciseId: z.string().uuid(),
+  newExerciseId: z.string().uuid(),
+});
+
+export async function swapSessionExerciseAction(input: z.infer<typeof SwapSchema>) {
+  const { sessionExerciseId, newExerciseId } = SwapSchema.parse(input);
+
+  const [se] = await db
+    .select()
+    .from(sessionExercises)
+    .where(eq(sessionExercises.id, sessionExerciseId))
+    .limit(1);
+  if (!se) return { ok: false as const, error: "Session exercise not found" };
+
+  const [setLogged] = await db
+    .select()
+    .from(workoutSets)
+    .where(eq(workoutSets.sessionExerciseId, sessionExerciseId))
+    .limit(1);
+  if (setLogged) return { ok: false as const, error: "Cannot swap — sets already logged" };
+
+  const [newEx] = await db
+    .select()
+    .from(exercises)
+    .where(eq(exercises.id, newExerciseId))
+    .limit(1);
+  if (!newEx) return { ok: false as const, error: "Exercise not found" };
+
+  // If swapping a main lift (had a liftId), null it so AMRAP bump logic doesn't fire on the substitute.
+  await db
+    .update(sessionExercises)
+    .set({
+      exerciseId: newExerciseId,
+      swappedFromExerciseId: se.swappedFromExerciseId ?? se.exerciseId,
+      liftId: null,
+    })
+    .where(eq(sessionExercises.id, sessionExerciseId));
+
+  revalidatePath("/");
+  return { ok: true as const, wasMainLift: se.liftId != null };
+}
+
+const ReorderSchema = z.object({
+  sessionId: z.string().uuid(),
+  orderedIds: z.array(z.string().uuid()).min(1),
+});
+
+export async function reorderSessionExercisesAction(input: z.infer<typeof ReorderSchema>) {
+  const { sessionId, orderedIds } = ReorderSchema.parse(input);
+  // Sequential updates (drizzle's transaction API varies by driver). For dev DB this is fine.
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db
+      .update(sessionExercises)
+      .set({ orderIndex: i })
+      .where(
+        and(
+          eq(sessionExercises.id, orderedIds[i]),
+          eq(sessionExercises.sessionId, sessionId),
+        ),
+      );
+  }
+  revalidatePath("/");
+  return { ok: true as const };
+}
+
+const ExtraSessionExerciseSchema = z.object({
+  exerciseId: z.string().uuid(),
+  sets: z.number().int().positive(),
+  reps: z.number().int().positive(),
+  rirTarget: z.number().int().min(0).max(5).nullable().optional(),
+});
+
+const StartExtraSchema = z.object({
+  exercises: z.array(ExtraSessionExerciseSchema).min(1),
+});
+
+export async function startExtraSessionAction(input: z.infer<typeof StartExtraSchema>) {
+  const { exercises: exs } = StartExtraSchema.parse(input);
+
+  const [created] = await db
+    .insert(workoutSessions)
+    .values({
+      programDayId: null,
+      isExtra: true,
+      status: "in_progress",
+      deloadFactor: 1,
+    })
+    .returning();
+
+  await db.insert(sessionExercises).values(
+    exs.map((e, i) => ({
+      sessionId: created.id,
+      programExerciseId: null,
+      exerciseId: e.exerciseId,
+      orderIndex: i,
+      prescriptionType: "rir_target" as const,
+      sets: e.sets,
+      reps: e.reps,
+      rirTarget: e.rirTarget ?? 1,
+      isAmrapTopSet: false,
+    })),
+  );
+
+  return { ok: true as const, sessionId: created.id };
+}
+
+const MarkDayStatusSchema = z.object({
+  programDayId: z.string().uuid(),
+  state: z.enum(["done", "missed", "rescheduled", "skipped"]),
+  rescheduledTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+});
+
+export async function markDayStatusAction(input: z.infer<typeof MarkDayStatusSchema>) {
+  const data = MarkDayStatusSchema.parse(input);
+  const [existing] = await db
+    .select()
+    .from(dayStatus)
+    .where(eq(dayStatus.programDayId, data.programDayId))
+    .limit(1);
+  if (existing) {
+    await db
+      .update(dayStatus)
+      .set({
+        state: data.state,
+        rescheduledTo: data.rescheduledTo ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(dayStatus.id, existing.id));
+  } else {
+    await db.insert(dayStatus).values({
+      programDayId: data.programDayId,
+      state: data.state,
+      rescheduledTo: data.rescheduledTo ?? null,
+    });
+  }
+  revalidatePath("/");
   return { ok: true as const };
 }
 

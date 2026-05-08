@@ -1,0 +1,421 @@
+- generic [ref=e1]:
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - button "← Back" [ref=e5] [cursor=pointer]
+      - generic [ref=e6]: Off-schedule
+      - generic [ref=e7]:
+        - generic [ref=e8]: Extra session
+        - generic [ref=e9]: adhoc
+      - generic [ref=e10]: Build a one-off workout. Doesn't shift the program.
+      - button "+ Add exercise" [ref=e12] [cursor=pointer]
+      - generic [ref=e15]:
+        - generic [ref=e17]:
+          - generic [ref=e18]: Add exercise
+          - button "×" [ref=e19] [cursor=pointer]
+        - textbox "Search exercises…" [active] [ref=e20]
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - generic [ref=e23]: abs
+            - generic [ref=e24]:
+              - button "Ab Wheel Rollout ab-wheel" [ref=e25] [cursor=pointer]:
+                - generic [ref=e26]:
+                  - generic [ref=e27]: Ab Wheel Rollout
+                  - generic [ref=e28]: ab-wheel
+              - button "Cable Crunch" [ref=e29] [cursor=pointer]:
+                - generic [ref=e31]: Cable Crunch
+              - button "Dead Bug bodyweight" [ref=e32] [cursor=pointer]:
+                - generic [ref=e33]:
+                  - generic [ref=e34]: Dead Bug
+                  - generic [ref=e35]: bodyweight
+              - button "Decline Sit-up bodyweight" [ref=e36] [cursor=pointer]:
+                - generic [ref=e37]:
+                  - generic [ref=e38]: Decline Sit-up
+                  - generic [ref=e39]: bodyweight
+              - button "Hanging Leg Raise" [ref=e40] [cursor=pointer]:
+                - generic [ref=e42]: Hanging Leg Raise
+              - button "Pallof Press cable" [ref=e43] [cursor=pointer]:
+                - generic [ref=e44]:
+                  - generic [ref=e45]: Pallof Press
+                  - generic [ref=e46]: cable
+              - button "Plank bodyweight" [ref=e47] [cursor=pointer]:
+                - generic [ref=e48]:
+                  - generic [ref=e49]: Plank
+                  - generic [ref=e50]: bodyweight
+              - button "Russian Twist plate" [ref=e51] [cursor=pointer]:
+                - generic [ref=e52]:
+                  - generic [ref=e53]: Russian Twist
+                  - generic [ref=e54]: plate
+              - button "Side Plank bodyweight" [ref=e55] [cursor=pointer]:
+                - generic [ref=e56]:
+                  - generic [ref=e57]: Side Plank
+                  - generic [ref=e58]: bodyweight
+              - button "Wood Chop cable" [ref=e59] [cursor=pointer]:
+                - generic [ref=e60]:
+                  - generic [ref=e61]: Wood Chop
+                  - generic [ref=e62]: cable
+          - generic [ref=e63]:
+            - generic [ref=e64]: back
+            - generic [ref=e65]:
+              - button "Barbell Row barbell" [ref=e66] [cursor=pointer]:
+                - generic [ref=e67]:
+                  - generic [ref=e68]: Barbell Row
+                  - generic [ref=e69]: barbell
+              - button "Barbell Shrug barbell" [ref=e70] [cursor=pointer]:
+                - generic [ref=e71]:
+                  - generic [ref=e72]: Barbell Shrug
+                  - generic [ref=e73]: barbell
+              - button "Chest-Supported T-Bar Row" [ref=e74] [cursor=pointer]:
+                - generic [ref=e76]: Chest-Supported T-Bar Row
+              - button "Chin-up bodyweight" [ref=e77] [cursor=pointer]:
+                - generic [ref=e78]:
+                  - generic [ref=e79]: Chin-up
+                  - generic [ref=e80]: bodyweight
+              - button "Deadlift" [ref=e81] [cursor=pointer]:
+                - generic [ref=e83]: Deadlift
+              - button "Meadows Row barbell" [ref=e84] [cursor=pointer]:
+                - generic [ref=e85]:
+                  - generic [ref=e86]: Meadows Row
+                  - generic [ref=e87]: barbell
+              - button "One-Arm Lat Pulldown" [ref=e88] [cursor=pointer]:
+                - generic [ref=e90]: One-Arm Lat Pulldown
+              - button "Pendlay Row barbell" [ref=e91] [cursor=pointer]:
+                - generic [ref=e92]:
+                  - generic [ref=e93]: Pendlay Row
+                  - generic [ref=e94]: barbell
+              - button "Reverse Pec Deck machine" [ref=e95] [cursor=pointer]:
+                - generic [ref=e96]:
+                  - generic [ref=e97]: Reverse Pec Deck
+                  - generic [ref=e98]: machine
+              - button "Seated Cable Row" [ref=e99] [cursor=pointer]:
+                - generic [ref=e101]: Seated Cable Row
+              - button "Single-Arm DB Row dumbbell" [ref=e102] [cursor=pointer]:
+                - generic [ref=e103]:
+                  - generic [ref=e104]: Single-Arm DB Row
+                  - generic [ref=e105]: dumbbell
+              - button "Straight-Arm Pulldown cable" [ref=e106] [cursor=pointer]:
+                - generic [ref=e107]:
+                  - generic [ref=e108]: Straight-Arm Pulldown
+                  - generic [ref=e109]: cable
+              - button "Weighted Pull-up" [ref=e110] [cursor=pointer]:
+                - generic [ref=e112]: Weighted Pull-up
+              - button "Wide-Grip Lat Pulldown cable" [ref=e113] [cursor=pointer]:
+                - generic [ref=e114]:
+                  - generic [ref=e115]: Wide-Grip Lat Pulldown
+                  - generic [ref=e116]: cable
+          - generic [ref=e117]:
+            - generic [ref=e118]: biceps
+            - generic [ref=e119]:
+              - button "Barbell Curl barbell" [ref=e120] [cursor=pointer]:
+                - generic [ref=e121]:
+                  - generic [ref=e122]: Barbell Curl
+                  - generic [ref=e123]: barbell
+              - button "Cable Curl cable" [ref=e124] [cursor=pointer]:
+                - generic [ref=e125]:
+                  - generic [ref=e126]: Cable Curl
+                  - generic [ref=e127]: cable
+              - button "Concentration Curl dumbbell" [ref=e128] [cursor=pointer]:
+                - generic [ref=e129]:
+                  - generic [ref=e130]: Concentration Curl
+                  - generic [ref=e131]: dumbbell
+              - button "EZ-Bar Curl ez-bar" [ref=e132] [cursor=pointer]:
+                - generic [ref=e133]:
+                  - generic [ref=e134]: EZ-Bar Curl
+                  - generic [ref=e135]: ez-bar
+              - button "Hammer Curl" [ref=e136] [cursor=pointer]:
+                - generic [ref=e138]: Hammer Curl
+              - button "Incline DB Curl" [ref=e139] [cursor=pointer]:
+                - generic [ref=e141]: Incline DB Curl
+              - button "Preacher Curl machine" [ref=e142] [cursor=pointer]:
+                - generic [ref=e143]:
+                  - generic [ref=e144]: Preacher Curl
+                  - generic [ref=e145]: machine
+              - button "Reverse Curl ez-bar" [ref=e146] [cursor=pointer]:
+                - generic [ref=e147]:
+                  - generic [ref=e148]: Reverse Curl
+                  - generic [ref=e149]: ez-bar
+              - button "Spider Curl dumbbells" [ref=e150] [cursor=pointer]:
+                - generic [ref=e151]:
+                  - generic [ref=e152]: Spider Curl
+                  - generic [ref=e153]: dumbbells
+          - generic [ref=e154]:
+            - generic [ref=e155]: calves
+            - generic [ref=e156]:
+              - button "Donkey Calf Raise machine" [ref=e157] [cursor=pointer]:
+                - generic [ref=e158]:
+                  - generic [ref=e159]: Donkey Calf Raise
+                  - generic [ref=e160]: machine
+              - button "Leg Press Calf Raise machine" [ref=e161] [cursor=pointer]:
+                - generic [ref=e162]:
+                  - generic [ref=e163]: Leg Press Calf Raise
+                  - generic [ref=e164]: machine
+              - button "Seated Calf Raise" [ref=e165] [cursor=pointer]:
+                - generic [ref=e167]: Seated Calf Raise
+              - button "Single-Leg Calf Raise bodyweight" [ref=e168] [cursor=pointer]:
+                - generic [ref=e169]:
+                  - generic [ref=e170]: Single-Leg Calf Raise
+                  - generic [ref=e171]: bodyweight
+              - button "Standing Calf Raise" [ref=e172] [cursor=pointer]:
+                - generic [ref=e174]: Standing Calf Raise
+          - generic [ref=e175]:
+            - generic [ref=e176]: chest
+            - generic [ref=e177]:
+              - button "Bench Press" [ref=e178] [cursor=pointer]:
+                - generic [ref=e180]: Bench Press
+              - button "Bench Press 1RM Test" [ref=e181] [cursor=pointer]:
+                - generic [ref=e183]: Bench Press 1RM Test
+              - button "Cable Crossover cable" [ref=e184] [cursor=pointer]:
+                - generic [ref=e185]:
+                  - generic [ref=e186]: Cable Crossover
+                  - generic [ref=e187]: cable
+              - button "Decline Bench Press barbell" [ref=e188] [cursor=pointer]:
+                - generic [ref=e189]:
+                  - generic [ref=e190]: Decline Bench Press
+                  - generic [ref=e191]: barbell
+              - button "Dumbbell Bench Press dumbbells" [ref=e192] [cursor=pointer]:
+                - generic [ref=e193]:
+                  - generic [ref=e194]: Dumbbell Bench Press
+                  - generic [ref=e195]: dumbbells
+              - button "Incline DB Bench" [ref=e196] [cursor=pointer]:
+                - generic [ref=e198]: Incline DB Bench
+              - button "Incline DB Press" [ref=e199] [cursor=pointer]:
+                - generic [ref=e201]: Incline DB Press
+              - button "Machine Chest Press machine" [ref=e202] [cursor=pointer]:
+                - generic [ref=e203]:
+                  - generic [ref=e204]: Machine Chest Press
+                  - generic [ref=e205]: machine
+              - button "Pec Deck machine" [ref=e206] [cursor=pointer]:
+                - generic [ref=e207]:
+                  - generic [ref=e208]: Pec Deck
+                  - generic [ref=e209]: machine
+              - button "Push-up bodyweight" [ref=e210] [cursor=pointer]:
+                - generic [ref=e211]:
+                  - generic [ref=e212]: Push-up
+                  - generic [ref=e213]: bodyweight
+              - button "Svend Press plate" [ref=e214] [cursor=pointer]:
+                - generic [ref=e215]:
+                  - generic [ref=e216]: Svend Press
+                  - generic [ref=e217]: plate
+              - button "Weighted Dip" [ref=e218] [cursor=pointer]:
+                - generic [ref=e220]: Weighted Dip
+          - generic [ref=e221]:
+            - generic [ref=e222]: forearms
+            - generic [ref=e223]:
+              - button "Farmer's Carry dumbbells" [ref=e224] [cursor=pointer]:
+                - generic [ref=e225]:
+                  - generic [ref=e226]: Farmer's Carry
+                  - generic [ref=e227]: dumbbells
+              - button "Reverse Wrist Curl barbell" [ref=e228] [cursor=pointer]:
+                - generic [ref=e229]:
+                  - generic [ref=e230]: Reverse Wrist Curl
+                  - generic [ref=e231]: barbell
+              - button "Wrist Curl barbell" [ref=e232] [cursor=pointer]:
+                - generic [ref=e233]:
+                  - generic [ref=e234]: Wrist Curl
+                  - generic [ref=e235]: barbell
+              - button "Wrist Roller specialty" [ref=e236] [cursor=pointer]:
+                - generic [ref=e237]:
+                  - generic [ref=e238]: Wrist Roller
+                  - generic [ref=e239]: specialty
+          - generic [ref=e240]:
+            - generic [ref=e241]: glutes
+            - generic [ref=e242]:
+              - button "Bulgarian Split Squat (Glute-Focus) dumbbells" [ref=e243] [cursor=pointer]:
+                - generic [ref=e244]:
+                  - generic [ref=e245]: Bulgarian Split Squat (Glute-Focus)
+                  - generic [ref=e246]: dumbbells
+              - button "Cable Pull-Through cable" [ref=e247] [cursor=pointer]:
+                - generic [ref=e248]:
+                  - generic [ref=e249]: Cable Pull-Through
+                  - generic [ref=e250]: cable
+              - button "Glute Bridge barbell" [ref=e251] [cursor=pointer]:
+                - generic [ref=e252]:
+                  - generic [ref=e253]: Glute Bridge
+                  - generic [ref=e254]: barbell
+              - button "Hip Thrust barbell" [ref=e255] [cursor=pointer]:
+                - generic [ref=e256]:
+                  - generic [ref=e257]: Hip Thrust
+                  - generic [ref=e258]: barbell
+              - button "Kickback cable" [ref=e259] [cursor=pointer]:
+                - generic [ref=e260]:
+                  - generic [ref=e261]: Kickback
+                  - generic [ref=e262]: cable
+          - generic [ref=e263]:
+            - generic [ref=e264]: hamstrings
+            - generic [ref=e265]:
+              - button "Glute Ham Raise machine" [ref=e266] [cursor=pointer]:
+                - generic [ref=e267]:
+                  - generic [ref=e268]: Glute Ham Raise
+                  - generic [ref=e269]: machine
+              - button "Lying Leg Curl machine" [ref=e270] [cursor=pointer]:
+                - generic [ref=e271]:
+                  - generic [ref=e272]: Lying Leg Curl
+                  - generic [ref=e273]: machine
+              - button "Nordic Hamstring Curl bodyweight" [ref=e274] [cursor=pointer]:
+                - generic [ref=e275]:
+                  - generic [ref=e276]: Nordic Hamstring Curl
+                  - generic [ref=e277]: bodyweight
+              - button "Romanian Deadlift" [ref=e278] [cursor=pointer]:
+                - generic [ref=e280]: Romanian Deadlift
+              - button "Seated Leg Curl" [ref=e281] [cursor=pointer]:
+                - generic [ref=e283]: Seated Leg Curl
+              - button "Single-Leg RDL dumbbell" [ref=e284] [cursor=pointer]:
+                - generic [ref=e285]:
+                  - generic [ref=e286]: Single-Leg RDL
+                  - generic [ref=e287]: dumbbell
+              - button "Stiff-Leg Deadlift barbell" [ref=e288] [cursor=pointer]:
+                - generic [ref=e289]:
+                  - generic [ref=e290]: Stiff-Leg Deadlift
+                  - generic [ref=e291]: barbell
+          - generic [ref=e292]:
+            - generic [ref=e293]: quads
+            - generic [ref=e294]:
+              - button "Back Squat" [ref=e295] [cursor=pointer]:
+                - generic [ref=e297]: Back Squat
+              - button "Belt Squat machine" [ref=e298] [cursor=pointer]:
+                - generic [ref=e299]:
+                  - generic [ref=e300]: Belt Squat
+                  - generic [ref=e301]: machine
+              - button "Bulgarian Split Squat" [ref=e302] [cursor=pointer]:
+                - generic [ref=e304]: Bulgarian Split Squat
+              - button "Front Squat barbell" [ref=e305] [cursor=pointer]:
+                - generic [ref=e306]:
+                  - generic [ref=e307]: Front Squat
+                  - generic [ref=e308]: barbell
+              - button "Goblet Squat dumbbell" [ref=e309] [cursor=pointer]:
+                - generic [ref=e310]:
+                  - generic [ref=e311]: Goblet Squat
+                  - generic [ref=e312]: dumbbell
+              - button "Hack Squat" [ref=e313] [cursor=pointer]:
+                - generic [ref=e315]: Hack Squat
+              - button "Leg Extension" [ref=e316] [cursor=pointer]:
+                - generic [ref=e318]: Leg Extension
+              - button "Leg Press machine" [ref=e319] [cursor=pointer]:
+                - generic [ref=e320]:
+                  - generic [ref=e321]: Leg Press
+                  - generic [ref=e322]: machine
+              - button "Sissy Squat bodyweight" [ref=e323] [cursor=pointer]:
+                - generic [ref=e324]:
+                  - generic [ref=e325]: Sissy Squat
+                  - generic [ref=e326]: bodyweight
+              - button "Step-up dumbbells" [ref=e327] [cursor=pointer]:
+                - generic [ref=e328]:
+                  - generic [ref=e329]: Step-up
+                  - generic [ref=e330]: dumbbells
+              - button "Walking Lunge dumbbells" [ref=e331] [cursor=pointer]:
+                - generic [ref=e332]:
+                  - generic [ref=e333]: Walking Lunge
+                  - generic [ref=e334]: dumbbells
+          - generic [ref=e335]:
+            - generic [ref=e336]: rear-delts
+            - generic [ref=e337]:
+              - button "Bent-Over Lateral Raise dumbbells" [ref=e338] [cursor=pointer]:
+                - generic [ref=e339]:
+                  - generic [ref=e340]: Bent-Over Lateral Raise
+                  - generic [ref=e341]: dumbbells
+              - button "Cable Face Pull" [ref=e342] [cursor=pointer]:
+                - generic [ref=e344]: Cable Face Pull
+              - button "Rear Delt Fly dumbbells" [ref=e345] [cursor=pointer]:
+                - generic [ref=e346]:
+                  - generic [ref=e347]: Rear Delt Fly
+                  - generic [ref=e348]: dumbbells
+              - button "Reverse Cable Fly cable" [ref=e349] [cursor=pointer]:
+                - generic [ref=e350]:
+                  - generic [ref=e351]: Reverse Cable Fly
+                  - generic [ref=e352]: cable
+          - generic [ref=e353]:
+            - generic [ref=e354]: shoulders
+            - generic [ref=e355]:
+              - button "Arnold Press dumbbells" [ref=e356] [cursor=pointer]:
+                - generic [ref=e357]:
+                  - generic [ref=e358]: Arnold Press
+                  - generic [ref=e359]: dumbbells
+              - button "Landmine Press barbell" [ref=e360] [cursor=pointer]:
+                - generic [ref=e361]:
+                  - generic [ref=e362]: Landmine Press
+                  - generic [ref=e363]: barbell
+              - button "Machine Shoulder Press machine" [ref=e364] [cursor=pointer]:
+                - generic [ref=e365]:
+                  - generic [ref=e366]: Machine Shoulder Press
+                  - generic [ref=e367]: machine
+              - button "Overhead Press" [ref=e368] [cursor=pointer]:
+                - generic [ref=e370]: Overhead Press
+              - button "Push Press barbell" [ref=e371] [cursor=pointer]:
+                - generic [ref=e372]:
+                  - generic [ref=e373]: Push Press
+                  - generic [ref=e374]: barbell
+              - button "Seated DB Press dumbbells" [ref=e375] [cursor=pointer]:
+                - generic [ref=e376]:
+                  - generic [ref=e377]: Seated DB Press
+                  - generic [ref=e378]: dumbbells
+          - generic [ref=e379]:
+            - generic [ref=e380]: side-delts
+            - generic [ref=e381]:
+              - button "Cable Lateral Raise" [ref=e382] [cursor=pointer]:
+                - generic [ref=e384]: Cable Lateral Raise
+              - button "DB Lateral Raise dumbbells" [ref=e385] [cursor=pointer]:
+                - generic [ref=e386]:
+                  - generic [ref=e387]: DB Lateral Raise
+                  - generic [ref=e388]: dumbbells
+              - button "Machine Lateral Raise machine" [ref=e389] [cursor=pointer]:
+                - generic [ref=e390]:
+                  - generic [ref=e391]: Machine Lateral Raise
+                  - generic [ref=e392]: machine
+              - button "Upright Row barbell" [ref=e393] [cursor=pointer]:
+                - generic [ref=e394]:
+                  - generic [ref=e395]: Upright Row
+                  - generic [ref=e396]: barbell
+              - button "Y-Raise dumbbells" [ref=e397] [cursor=pointer]:
+                - generic [ref=e398]:
+                  - generic [ref=e399]: Y-Raise
+                  - generic [ref=e400]: dumbbells
+          - generic [ref=e401]:
+            - generic [ref=e402]: traps
+            - generic [ref=e403]:
+              - button "DB Shrug dumbbells" [ref=e404] [cursor=pointer]:
+                - generic [ref=e405]:
+                  - generic [ref=e406]: DB Shrug
+                  - generic [ref=e407]: dumbbells
+              - button "Face Pull (Traps Focus) cable" [ref=e408] [cursor=pointer]:
+                - generic [ref=e409]:
+                  - generic [ref=e410]: Face Pull (Traps Focus)
+                  - generic [ref=e411]: cable
+              - button "Trap Bar Shrug trap-bar" [ref=e412] [cursor=pointer]:
+                - generic [ref=e413]:
+                  - generic [ref=e414]: Trap Bar Shrug
+                  - generic [ref=e415]: trap-bar
+          - generic [ref=e416]:
+            - generic [ref=e417]: triceps
+            - generic [ref=e418]:
+              - button "Bench Dip bodyweight" [ref=e419] [cursor=pointer]:
+                - generic [ref=e420]:
+                  - generic [ref=e421]: Bench Dip
+                  - generic [ref=e422]: bodyweight
+              - button "Cable Triceps Pushdown" [ref=e423] [cursor=pointer]:
+                - generic [ref=e425]: Cable Triceps Pushdown
+              - button "Close-Grip Bench Press" [ref=e426] [cursor=pointer]:
+                - generic [ref=e428]: Close-Grip Bench Press
+              - button "DB Triceps Kickback dumbbell" [ref=e429] [cursor=pointer]:
+                - generic [ref=e430]:
+                  - generic [ref=e431]: DB Triceps Kickback
+                  - generic [ref=e432]: dumbbell
+              - button "Diamond Push-up bodyweight" [ref=e433] [cursor=pointer]:
+                - generic [ref=e434]:
+                  - generic [ref=e435]: Diamond Push-up
+                  - generic [ref=e436]: bodyweight
+              - button "JM Press barbell" [ref=e437] [cursor=pointer]:
+                - generic [ref=e438]:
+                  - generic [ref=e439]: JM Press
+                  - generic [ref=e440]: barbell
+              - button "Overhead Cable Triceps Extension" [ref=e441] [cursor=pointer]:
+                - generic [ref=e443]: Overhead Cable Triceps Extension
+              - button "Skull Crusher ez-bar" [ref=e444] [cursor=pointer]:
+                - generic [ref=e445]:
+                  - generic [ref=e446]: Skull Crusher
+                  - generic [ref=e447]: ez-bar
+              - button "Tate Press dumbbells" [ref=e448] [cursor=pointer]:
+                - generic [ref=e449]:
+                  - generic [ref=e450]: Tate Press
+                  - generic [ref=e451]: dumbbells
+        - button "Cancel" [ref=e453] [cursor=pointer]
+  - region "Notifications alt+T"
+  - alert [ref=e13]

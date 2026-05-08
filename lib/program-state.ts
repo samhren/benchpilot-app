@@ -23,3 +23,34 @@ export async function setCurrentProgramWeek(programId: string, weekNumber: numbe
     .set({ currentWeek: weekNumber })
     .where(eq(programs.id, programId));
 }
+
+export const LONG_GAP_DAYS = 14;
+
+// Pure helper: derive the calendar date for a (programStartDate, weekNumber, dayOfWeek).
+// dayOfWeek is 1..7 (Mon..Sun) consistent with dayOfWeekFromJs.
+export function scheduledDateForDay(
+  startDate: string | Date,
+  weekNumber: number,
+  dayOfWeek: number,
+): Date {
+  const start = typeof startDate === "string" ? new Date(startDate + "T00:00:00") : new Date(startDate);
+  const startDow = dayOfWeekFromJs(start);
+  const offsetDays = (weekNumber - 1) * 7 + (dayOfWeek - startDow);
+  const out = new Date(start);
+  out.setDate(out.getDate() + offsetDays);
+  return out;
+}
+
+export function shouldSuggestLongGapDeload(
+  lastCompletedAt: Date | null,
+  today = new Date(),
+): boolean {
+  if (!lastCompletedAt) return false;
+  const ms = today.getTime() - lastCompletedAt.getTime();
+  const days = Math.floor(ms / 86400000);
+  return days >= LONG_GAP_DAYS;
+}
+
+export function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}

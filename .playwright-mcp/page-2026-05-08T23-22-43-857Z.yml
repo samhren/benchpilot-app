@@ -1,0 +1,100 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - main [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]:
+            - generic [ref=e7]: Week 1 · Day 5 · Fri
+            - generic [ref=e8]: Fri, May 8
+          - generic [ref=e9]: BP
+        - generic [ref=e10]:
+          - generic [ref=e11]:
+            - generic [ref=e12]: Missed
+            - generic [ref=e13]: 2026-05-04
+            - generic [ref=e14]: +2 more
+          - generic [ref=e15]: Upper A
+          - generic [ref=e16]: Heavy Bench
+          - generic [ref=e17]:
+            - button "Do now" [ref=e18] [cursor=pointer]
+            - button "Reschedule" [ref=e19] [cursor=pointer]
+            - button "Skip" [ref=e20] [cursor=pointer]
+        - generic [ref=e23]:
+          - generic [ref=e24]:
+            - generic [ref=e25]: Today
+            - generic [ref=e26]: ≈ 48 min
+          - generic [ref=e27]: Upper A
+          - generic [ref=e28]: Heavy Bench
+          - generic [ref=e30]:
+            - generic [ref=e31]: Bench
+            - generic [ref=e32]:
+              - generic [ref=e33]: "155"
+              - generic [ref=e34]: × 5 × 5
+          - link "Start workout" [ref=e36] [cursor=pointer]:
+            - /url: /workout/c0ff0d85-cabd-4688-a612-651223ede573
+            - button "Start workout" [ref=e37]:
+              - img [ref=e38]
+              - text: Start workout
+        - link "+ Extra session" [ref=e41] [cursor=pointer]:
+          - /url: /workout/extra
+          - button "+ Extra session" [ref=e42]
+        - generic [ref=e43]:
+          - generic [ref=e44]:
+            - generic [ref=e45]: Training maxes
+            - generic [ref=e46]: tap to see history
+          - generic [ref=e47]:
+            - link "Bench 205 lb current TM" [ref=e48] [cursor=pointer]:
+              - /url: /lifts?l=bench_press
+              - button "Bench 205 lb current TM" [ref=e49]:
+                - generic [ref=e50]: Bench
+                - generic [ref=e51]:
+                  - generic [ref=e52]: "205"
+                  - generic [ref=e53]: lb
+                - generic [ref=e54]: current TM
+            - link "Squat — lb 1RM" [ref=e55] [cursor=pointer]:
+              - /url: /lifts?l=back_squat
+              - button "Squat — lb 1RM" [ref=e56]:
+                - generic [ref=e57]: Squat
+                - generic [ref=e58]:
+                  - generic [ref=e59]: —
+                  - generic [ref=e60]: lb
+                - generic [ref=e61]: 1RM
+            - link "Deadlift — lb 1RM" [ref=e62] [cursor=pointer]:
+              - /url: /lifts?l=deadlift
+              - button "Deadlift — lb 1RM" [ref=e63]:
+                - generic [ref=e64]: Deadlift
+                - generic [ref=e65]:
+                  - generic [ref=e66]: —
+                  - generic [ref=e67]: lb
+                - generic [ref=e68]: 1RM
+        - generic [ref=e70]:
+          - generic [ref=e72]:
+            - generic [ref=e73]: Bodyweight · 4 wk
+            - generic [ref=e74]:
+              - generic [ref=e75]: —
+              - generic [ref=e76]: lb
+          - button "＋ Log weight" [ref=e78] [cursor=pointer]:
+            - generic: ＋
+            - text: Log weight
+    - generic [ref=e79]:
+      - link "Home" [ref=e80] [cursor=pointer]:
+        - /url: /
+        - img [ref=e81]
+        - generic [ref=e83]: Home
+      - link "Workout" [ref=e84] [cursor=pointer]:
+        - /url: /workout
+        - img [ref=e85]
+        - generic [ref=e91]: Workout
+      - link "Program" [ref=e92] [cursor=pointer]:
+        - /url: /program
+        - img [ref=e93]
+        - generic [ref=e96]: Program
+      - link "Lifts" [ref=e97] [cursor=pointer]:
+        - /url: /lifts
+        - img [ref=e98]
+        - generic [ref=e104]: Lifts
+      - link "Settings" [ref=e105] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e106]
+        - generic [ref=e110]: Settings
+  - region "Notifications alt+T"
+  - alert [ref=e111]

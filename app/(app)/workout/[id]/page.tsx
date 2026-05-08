@@ -9,7 +9,8 @@ import {
   getProgramExercises,
 } from "@/lib/queries";
 import { resolveBenchPrescription } from "@/lib/programming/training-max";
-import { BP, BigButton, Eyebrow, Mono, Pill } from "@/components/ui/primitives";
+import { BP, Eyebrow, Mono, Pill } from "@/components/ui/primitives";
+import { StartWorkoutButton } from "@/components/start-workout-button";
 
 interface Params { id: string }
 
@@ -166,19 +167,7 @@ export default async function PreviewPage({ params }: { params: Promise<Params> 
           margin: "0 auto",
         }}
       >
-        <Link href={`/workout/${id}/active`} data-testid="start-active">
-          <BigButton
-            kind="primary"
-            height={64}
-            icon={
-              <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
-                <path d="M3 2l11 6-11 6V2z" fill="#fff" />
-              </svg>
-            }
-          >
-            Start this workout
-          </BigButton>
-        </Link>
+        <StartWorkoutButton programDayId={id} />
       </div>
     </div>
   );

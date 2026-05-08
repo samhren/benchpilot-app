@@ -2,29 +2,46 @@ export const dynamic = "force-dynamic";
 
 import { notFound, redirect } from "next/navigation";
 import {
+  getAllExercises,
   getAllLifts,
   getLastSetForExercise,
   getProgramDay,
-  getProgramExercises,
+  getSessionExercises,
   getSettings,
 } from "@/lib/queries";
-import { resolveBenchPrescription } from "@/lib/programming/training-max";
+import { startSessionAction } from "@/app/actions";
 import ActiveWorkout, { type SetRow } from "./active-client";
 
 interface Params { id: string }
 
-export default async function ActivePage({ params }: { params: Promise<Params> }) {
+export default async function ActivePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<Params>;
+  searchParams?: Promise<{ deload?: string }>;
+}) {
   const { id } = await params;
+  const sp = (await searchParams) ?? {};
   const day = await getProgramDay(id);
   if (!day) notFound();
   if (day.sessionType === "rest") redirect("/program");
 
-  const exs = await getProgramExercises(id);
+  const deloadFactor = sp.deload ? Math.max(0.3, Math.min(1, parseFloat(sp.deload))) : undefined;
+
+  // Ensure a session exists (snapshots template into session_exercises on first call).
+  const startResult = await startSessionAction({ programDayId: id, deloadFactor });
+  if (!startResult.ok) notFound();
+  const sessionId = startResult.sessionId;
+
+  const exs = await getSessionExercises(sessionId);
   const lifts = await getAllLifts();
   const settings = await getSettings();
+  const allExercises = await getAllExercises();
   const benchTm = lifts.find((l) => l.name === "bench_press")?.trainingMax ?? null;
 
-  // Flatten the workout into ordered SetRow[] — including wavePlan expansion for bench.
+  // Flatten session_exercises into ordered SetRow[]. Weights are already snapshotted
+  // into session_exercises.weightPrescribed (with deloadFactor applied at start).
   const rows: SetRow[] = [];
   for (const e of exs) {
     const lastSet = await getLastSetForExercise(e.ex.id);
@@ -32,9 +49,8 @@ export default async function ActivePage({ params }: { params: Promise<Params> }
       ? { reps: lastSet.repsCompleted ?? 0, weight: lastSet.weightUsed ?? 0 }
       : null;
 
-    if (e.pe.wavePlan) {
-      // wavePlan is array of {percentage, sets, reps, isAmrap}
-      const plan = e.pe.wavePlan as Array<{
+    if (e.se.wavePlan) {
+      const plan = e.se.wavePlan as Array<{
         percentage: number;
         sets: number;
         reps: number;
@@ -46,14 +62,14 @@ export default async function ActivePage({ params }: { params: Promise<Params> }
         for (let s = 0; s < p.sets; s++) {
           rows.push({
             kind: "main",
-            programExerciseId: e.pe.id,
+            sessionExerciseId: e.se.id,
             exerciseId: e.ex.id,
             exerciseName: e.ex.name,
             setNumber: setNumber++,
             totalSets,
             repsPrescribed: p.reps,
             weightPrescribed:
-              benchTm != null ? resolveBenchPrescription(p.percentage, benchTm) : null,
+              benchTm != null ? Math.round((benchTm * p.percentage) / 100 / 5) * 5 : null,
             percentage: p.percentage,
             isAmrap: !!p.isAmrap,
             rirTarget: null,
@@ -63,23 +79,20 @@ export default async function ActivePage({ params }: { params: Promise<Params> }
         }
       }
     } else {
-      const totalSets = e.pe.sets;
-      for (let s = 0; s < e.pe.sets; s++) {
-        const w = e.pe.percentageOfTm != null && benchTm != null
-          ? resolveBenchPrescription(e.pe.percentageOfTm, benchTm)
-          : null;
+      const totalSets = e.se.sets;
+      for (let s = 0; s < e.se.sets; s++) {
         rows.push({
-          kind: e.pe.percentageOfTm != null ? "main" : "accessory",
-          programExerciseId: e.pe.id,
+          kind: e.se.percentageOfTm != null ? "main" : "accessory",
+          sessionExerciseId: e.se.id,
           exerciseId: e.ex.id,
           exerciseName: e.ex.name,
           setNumber: s + 1,
           totalSets,
-          repsPrescribed: e.pe.reps,
-          weightPrescribed: w,
-          percentage: e.pe.percentageOfTm,
-          isAmrap: e.pe.isAmrapTopSet && s === e.pe.sets - 1,
-          rirTarget: e.pe.rirTarget,
+          repsPrescribed: e.se.reps,
+          weightPrescribed: e.se.weightPrescribed,
+          percentage: e.se.percentageOfTm,
+          isAmrap: e.se.isAmrapTopSet && s === e.se.sets - 1,
+          rirTarget: e.se.rirTarget,
           sessionLabel: day.displayName,
           last,
         });
@@ -89,8 +102,26 @@ export default async function ActivePage({ params }: { params: Promise<Params> }
 
   const isBenchAmrapDay = rows.some((r) => r.isAmrap && r.exerciseName === "Bench Press");
 
+  const sessionExerciseList = exs.map((e) => ({
+    id: e.se.id,
+    exerciseId: e.ex.id,
+    name: e.ex.name,
+    muscleGroup: e.ex.muscleGroup,
+    orderIndex: e.se.orderIndex,
+    status: e.se.status,
+    swappedFromExerciseId: e.se.swappedFromExerciseId,
+    isMainLift: e.se.liftId != null,
+  }));
+  const library = allExercises.map((e) => ({
+    id: e.id,
+    name: e.name,
+    muscleGroup: e.muscleGroup,
+    equipment: e.equipment,
+  }));
+
   return (
     <ActiveWorkout
+      sessionId={sessionId}
       programDayId={id}
       sessionLabel={day.displayName}
       rows={rows}
@@ -98,6 +129,8 @@ export default async function ActivePage({ params }: { params: Promise<Params> }
       benchTm={benchTm}
       restMainSec={settings?.defaultRestMainSec ?? 180}
       restAccessorySec={settings?.defaultRestAccessorySec ?? 90}
+      sessionExercises={sessionExerciseList}
+      library={library}
     />
   );
 }

@@ -1,0 +1,105 @@
+- generic [ref=e1]:
+  - main [ref=e3]:
+    - generic [ref=e112]:
+      - button "← Back" [ref=e113] [cursor=pointer]
+      - generic [ref=e114]: Off-schedule
+      - generic [ref=e115]:
+        - generic [ref=e116]: Extra session
+        - generic [ref=e117]: adhoc
+      - generic [ref=e118]: Build a one-off workout. Doesn't shift the program.
+      - button "+ Add exercise" [ref=e120] [cursor=pointer]
+      - generic [ref=e122]:
+        - generic [ref=e124]:
+          - generic [ref=e125]: Add exercise
+          - button "×" [ref=e126] [cursor=pointer]
+        - textbox "Search exercises…" [active] [ref=e127]
+        - generic [ref=e128]:
+          - generic [ref=e129]:
+            - generic [ref=e130]: abs
+            - generic [ref=e131]:
+              - button "Cable Crunch" [ref=e132] [cursor=pointer]:
+                - generic [ref=e134]: Cable Crunch
+              - button "Hanging Leg Raise" [ref=e135] [cursor=pointer]:
+                - generic [ref=e137]: Hanging Leg Raise
+          - generic [ref=e138]:
+            - generic [ref=e139]: back
+            - generic [ref=e140]:
+              - button "Chest-Supported T-Bar Row" [ref=e141] [cursor=pointer]:
+                - generic [ref=e143]: Chest-Supported T-Bar Row
+              - button "Deadlift" [ref=e144] [cursor=pointer]:
+                - generic [ref=e146]: Deadlift
+              - button "One-Arm Lat Pulldown" [ref=e147] [cursor=pointer]:
+                - generic [ref=e149]: One-Arm Lat Pulldown
+              - button "Seated Cable Row" [ref=e150] [cursor=pointer]:
+                - generic [ref=e152]: Seated Cable Row
+              - button "Weighted Pull-up" [ref=e153] [cursor=pointer]:
+                - generic [ref=e155]: Weighted Pull-up
+          - generic [ref=e156]:
+            - generic [ref=e157]: biceps
+            - generic [ref=e158]:
+              - button "Hammer Curl" [ref=e159] [cursor=pointer]:
+                - generic [ref=e161]: Hammer Curl
+              - button "Incline DB Curl" [ref=e162] [cursor=pointer]:
+                - generic [ref=e164]: Incline DB Curl
+          - generic [ref=e165]:
+            - generic [ref=e166]: calves
+            - generic [ref=e167]:
+              - button "Seated Calf Raise" [ref=e168] [cursor=pointer]:
+                - generic [ref=e170]: Seated Calf Raise
+              - button "Standing Calf Raise" [ref=e171] [cursor=pointer]:
+                - generic [ref=e173]: Standing Calf Raise
+          - generic [ref=e174]:
+            - generic [ref=e175]: chest
+            - generic [ref=e176]:
+              - button "Bench Press" [ref=e177] [cursor=pointer]:
+                - generic [ref=e179]: Bench Press
+              - button "Bench Press 1RM Test" [ref=e180] [cursor=pointer]:
+                - generic [ref=e182]: Bench Press 1RM Test
+              - button "Incline DB Bench" [ref=e183] [cursor=pointer]:
+                - generic [ref=e185]: Incline DB Bench
+              - button "Incline DB Press" [ref=e186] [cursor=pointer]:
+                - generic [ref=e188]: Incline DB Press
+              - button "Weighted Dip" [ref=e189] [cursor=pointer]:
+                - generic [ref=e191]: Weighted Dip
+          - generic [ref=e192]:
+            - generic [ref=e193]: hamstrings
+            - generic [ref=e194]:
+              - button "Romanian Deadlift" [ref=e195] [cursor=pointer]:
+                - generic [ref=e197]: Romanian Deadlift
+              - button "Seated Leg Curl" [ref=e198] [cursor=pointer]:
+                - generic [ref=e200]: Seated Leg Curl
+          - generic [ref=e201]:
+            - generic [ref=e202]: quads
+            - generic [ref=e203]:
+              - button "Back Squat" [ref=e204] [cursor=pointer]:
+                - generic [ref=e206]: Back Squat
+              - button "Bulgarian Split Squat" [ref=e207] [cursor=pointer]:
+                - generic [ref=e209]: Bulgarian Split Squat
+              - button "Hack Squat" [ref=e210] [cursor=pointer]:
+                - generic [ref=e212]: Hack Squat
+              - button "Leg Extension" [ref=e213] [cursor=pointer]:
+                - generic [ref=e215]: Leg Extension
+          - generic [ref=e216]:
+            - generic [ref=e217]: rear-delts
+            - button "Cable Face Pull" [ref=e219] [cursor=pointer]:
+              - generic [ref=e221]: Cable Face Pull
+          - generic [ref=e222]:
+            - generic [ref=e223]: shoulders
+            - button "Overhead Press" [ref=e225] [cursor=pointer]:
+              - generic [ref=e227]: Overhead Press
+          - generic [ref=e228]:
+            - generic [ref=e229]: side-delts
+            - button "Cable Lateral Raise" [ref=e231] [cursor=pointer]:
+              - generic [ref=e233]: Cable Lateral Raise
+          - generic [ref=e234]:
+            - generic [ref=e235]: triceps
+            - generic [ref=e236]:
+              - button "Cable Triceps Pushdown" [ref=e237] [cursor=pointer]:
+                - generic [ref=e239]: Cable Triceps Pushdown
+              - button "Close-Grip Bench Press" [ref=e240] [cursor=pointer]:
+                - generic [ref=e242]: Close-Grip Bench Press
+              - button "Overhead Cable Triceps Extension" [ref=e243] [cursor=pointer]:
+                - generic [ref=e245]: Overhead Cable Triceps Extension
+        - button "Cancel" [ref=e247] [cursor=pointer]
+  - region "Notifications alt+T"
+  - alert [ref=e111]

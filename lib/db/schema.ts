@@ -52,6 +52,27 @@ export const tmReasonEnum = pgEnum("tm_reason", [
   "reset",
 ]);
 
+export const sessionExerciseStatusEnum = pgEnum("session_exercise_status", [
+  "pending",
+  "completed",
+  "skipped",
+  "partial",
+]);
+
+export const workoutSessionStatusEnum = pgEnum("workout_session_status", [
+  "in_progress",
+  "completed",
+  "partial",
+  "abandoned",
+]);
+
+export const dayStatusStateEnum = pgEnum("day_status_state", [
+  "done",
+  "missed",
+  "rescheduled",
+  "skipped",
+]);
+
 export const lifts = pgTable("lifts", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: liftNameEnum("name").notNull().unique(),
@@ -127,11 +148,53 @@ export const workoutSessions = pgTable(
     bodyWeightLb: real("body_weight_lb"),
     notes: text("notes"),
     perceivedRirOverall: integer("perceived_rir_overall"),
+    status: workoutSessionStatusEnum("status").default("in_progress").notNull(),
+    deloadFactor: real("deload_factor").default(1).notNull(),
+    isExtra: boolean("is_extra").default(false).notNull(),
   },
   (t) => ({
     startedIdx: index("workout_sessions_started_idx").on(t.startedAt),
   }),
 );
+
+export const sessionExercises = pgTable(
+  "session_exercises",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => workoutSessions.id, { onDelete: "cascade" }),
+    programExerciseId: uuid("program_exercise_id").references(() => programExercises.id),
+    exerciseId: uuid("exercise_id").notNull().references(() => exercises.id),
+    swappedFromExerciseId: uuid("swapped_from_exercise_id").references(() => exercises.id),
+    orderIndex: integer("order_index").notNull(),
+    prescriptionType: prescriptionTypeEnum("prescription_type").notNull(),
+    sets: integer("sets").notNull(),
+    reps: integer("reps").notNull(),
+    weightPrescribed: real("weight_prescribed"),
+    percentageOfTm: real("percentage_of_tm"),
+    rirTarget: integer("rir_target"),
+    liftId: uuid("lift_id").references(() => lifts.id),
+    wavePlan: jsonb("wave_plan"),
+    isAmrapTopSet: boolean("is_amrap_top_set").default(false).notNull(),
+    status: sessionExerciseStatusEnum("status").default("pending").notNull(),
+    notes: text("notes"),
+  },
+  (t) => ({
+    sessionIdx: index("session_exercises_session_idx").on(t.sessionId, t.orderIndex),
+  }),
+);
+
+export const dayStatus = pgTable("day_status", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programDayId: uuid("program_day_id")
+    .notNull()
+    .references(() => programDays.id, { onDelete: "cascade" })
+    .unique(),
+  state: dayStatusStateEnum("state").notNull(),
+  rescheduledTo: date("rescheduled_to"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export const workoutSets = pgTable(
   "workout_sets",
@@ -140,6 +203,9 @@ export const workoutSets = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => workoutSessions.id, { onDelete: "cascade" }),
+    sessionExerciseId: uuid("session_exercise_id").references(() => sessionExercises.id, {
+      onDelete: "cascade",
+    }),
     programExerciseId: uuid("program_exercise_id").references(() => programExercises.id),
     exerciseId: uuid("exercise_id").notNull().references(() => exercises.id),
     setNumber: integer("set_number").notNull(),

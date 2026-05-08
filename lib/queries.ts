@@ -1,17 +1,20 @@
 import { db } from "@/lib/db";
 import {
   bodyWeightLogs,
+  dayStatus,
   exercises,
   lifts,
   programDays,
   programExercises,
   programs,
+  sessionExercises,
   settings,
   tmHistory,
   workoutSessions,
   workoutSets,
 } from "@/lib/db/schema";
 import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { dayOfWeekFromJs, isoDate, scheduledDateForDay } from "@/lib/program-state";
 
 export async function getActiveProgram() {
   const [p] = await db.select().from(programs).where(eq(programs.status, "active")).limit(1);
@@ -25,6 +28,10 @@ export async function getSettings() {
 
 export async function getAllLifts() {
   return db.select().from(lifts);
+}
+
+export async function getAllExercises() {
+  return db.select().from(exercises).orderBy(exercises.muscleGroup, exercises.name);
 }
 
 export async function getLiftByName(name: "bench_press" | "back_squat" | "deadlift" | "overhead_press") {
@@ -156,6 +163,96 @@ export async function countCompletedSessions(programId: string): Promise<number>
     .innerJoin(programDays, eq(workoutSessions.programDayId, programDays.id))
     .where(and(eq(programDays.programId, programId), isNotNull(workoutSessions.completedAt)));
   return Number(rows[0]?.c ?? 0);
+}
+
+export async function getSessionExercises(sessionId: string) {
+  return db
+    .select({
+      se: sessionExercises,
+      ex: exercises,
+    })
+    .from(sessionExercises)
+    .innerJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
+    .where(eq(sessionExercises.sessionId, sessionId))
+    .orderBy(sessionExercises.orderIndex);
+}
+
+export async function getLastCompletedSessionAt(): Promise<Date | null> {
+  const [row] = await db
+    .select()
+    .from(workoutSessions)
+    .where(isNotNull(workoutSessions.completedAt))
+    .orderBy(desc(workoutSessions.completedAt))
+    .limit(1);
+  return row?.completedAt ? new Date(row.completedAt as unknown as string) : null;
+}
+
+// Days the user missed: scheduled date < today, no completed session,
+// and not marked done/skipped/rescheduled-to-future via dayStatus.
+export async function getMissedDays(programId: string, today = new Date()) {
+  const program = await db.select().from(programs).where(eq(programs.id, programId)).limit(1);
+  const p = program[0];
+  if (!p) return [];
+
+  const rows = await db
+    .select({
+      pd: programDays,
+      sess: workoutSessions,
+      ds: dayStatus,
+    })
+    .from(programDays)
+    .leftJoin(
+      workoutSessions,
+      and(
+        eq(workoutSessions.programDayId, programDays.id),
+        isNotNull(workoutSessions.completedAt),
+      ),
+    )
+    .leftJoin(dayStatus, eq(dayStatus.programDayId, programDays.id))
+    .where(eq(programDays.programId, programId))
+    .orderBy(programDays.weekNumber, programDays.dayOfWeek);
+
+  const todayIso = isoDate(today);
+  const out: Array<{ pd: typeof programDays.$inferSelect; scheduledDate: string }> = [];
+  for (const r of rows) {
+    if (r.pd.sessionType === "rest") continue;
+    if (r.sess) continue;
+    const scheduled = scheduledDateForDay(p.startDate, r.pd.weekNumber, r.pd.dayOfWeek);
+    const sIso = isoDate(scheduled);
+    if (sIso >= todayIso) continue;
+    if (r.ds) {
+      // Treat skipped, done, or rescheduled-to-future as not-missed
+      if (r.ds.state === "skipped" || r.ds.state === "done") continue;
+      if (r.ds.state === "rescheduled" && r.ds.rescheduledTo && r.ds.rescheduledTo >= todayIso) continue;
+    }
+    out.push({ pd: r.pd, scheduledDate: sIso });
+  }
+  return out;
+}
+
+export async function getRescheduledDaysForToday(programId: string, today = new Date()) {
+  const todayIso = isoDate(today);
+  const rows = await db
+    .select({ pd: programDays, ds: dayStatus })
+    .from(dayStatus)
+    .innerJoin(programDays, eq(dayStatus.programDayId, programDays.id))
+    .where(
+      and(
+        eq(programDays.programId, programId),
+        eq(dayStatus.state, "rescheduled"),
+        eq(dayStatus.rescheduledTo, todayIso),
+      ),
+    );
+  return rows.map((r) => r.pd);
+}
+
+export async function getDayStatus(programDayId: string) {
+  const [r] = await db
+    .select()
+    .from(dayStatus)
+    .where(eq(dayStatus.programDayId, programDayId))
+    .limit(1);
+  return r ?? null;
 }
 
 export async function getBodyWeightsSinceDays(days: number) {

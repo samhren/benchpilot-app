@@ -1,0 +1,56 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - main [ref=e122]:
+      - generic [ref=e123]:
+        - button [ref=e124] [cursor=pointer]:
+          - img [ref=e125]
+        - generic [ref=e127]:
+          - generic [ref=e128]: Upper A
+          - generic [ref=e129]: Heavy Bench
+        - generic [ref=e130]: 0:06
+      - generic [ref=e133]: Bench Press · Set 1 of 5
+      - generic [ref=e140]:
+        - generic [ref=e141]: Top set · 75% TM
+        - generic [ref=e142]:
+          - generic [ref=e143]: —
+          - generic [ref=e144]: lb
+        - generic [ref=e145]:
+          - text: "Prescribed:"
+          - generic [ref=e146]: 5 reps
+        - generic [ref=e147]:
+          - text: "Last:"
+          - generic [ref=e148]: 5 reps
+          - text: "@ 0 lb"
+      - generic [ref=e149]:
+        - generic [ref=e150]: Reps performed
+        - generic [ref=e151]:
+          - button "−" [ref=e152] [cursor=pointer]
+          - generic [ref=e153]:
+            - generic [ref=e154]: "5"
+            - generic [ref=e155]: reps
+          - button "＋" [ref=e156] [cursor=pointer]
+      - generic [ref=e158]:
+        - generic [ref=e159]:
+          - generic [ref=e160]: RIR · reps in reserve
+          - generic [ref=e161]: "2"
+        - generic [ref=e162]:
+          - button "0" [ref=e163] [cursor=pointer]
+          - button "1" [ref=e164] [cursor=pointer]
+          - button "2" [ref=e165] [cursor=pointer]
+          - button "3" [ref=e166] [cursor=pointer]
+          - button "4" [ref=e167] [cursor=pointer]
+      - generic [ref=e168]:
+        - generic [ref=e169]:
+          - text: "Weight:"
+          - generic [ref=e170]: — lb
+        - button "Override" [ref=e171] [cursor=pointer]
+      - generic [ref=e172]:
+        - button "Log set" [ref=e173] [cursor=pointer]:
+          - img [ref=e174]
+          - text: Log set
+        - button "Skip this set" [ref=e176] [cursor=pointer]
+      - generic [ref=e177]:
+        - button "Finish workout" [ref=e178] [cursor=pointer]
+        - button "End early" [ref=e179] [cursor=pointer]
+  - region "Notifications alt+T"
+  - alert [ref=e114]

@@ -7,14 +7,20 @@ import { BP, BigButton, Eyebrow, Mono, Pill, StepDots, calcPlates, platesSummary
 import {
   applyAmrapBumpAction,
   completeSessionAction,
+  endSessionEarlyAction,
   logSetAction,
-  startSessionAction,
+  reorderSessionExercisesAction,
+  swapSessionExerciseAction,
 } from "@/app/actions";
 import { offlineQueue } from "@/lib/offline";
+import {
+  ExerciseLibraryPicker,
+  type LibraryExercise,
+} from "@/components/exercise-library-picker";
 
 export interface SetRow {
   kind: "main" | "accessory";
-  programExerciseId: string;
+  sessionExerciseId: string;
   exerciseId: string;
   exerciseName: string;
   setNumber: number;
@@ -28,27 +34,44 @@ export interface SetRow {
   last: { reps: number; weight: number } | null;
 }
 
+export interface SessionExerciseEntry {
+  id: string;
+  exerciseId: string;
+  name: string;
+  muscleGroup: string;
+  orderIndex: number;
+  status: "pending" | "completed" | "skipped" | "partial";
+  swappedFromExerciseId: string | null;
+  isMainLift: boolean;
+}
+
 interface Props {
-  programDayId: string;
+  sessionId: string;
+  programDayId?: string | null;
   sessionLabel: string;
   rows: SetRow[];
   isBenchAmrapDay: boolean;
   benchTm: number | null;
   restMainSec: number;
   restAccessorySec: number;
+  sessionExercises: SessionExerciseEntry[];
+  library: LibraryExercise[];
 }
 
 export default function ActiveWorkout({
-  programDayId,
+  sessionId,
   sessionLabel,
   rows,
   benchTm,
   restMainSec,
   restAccessorySec,
+  sessionExercises,
+  library,
 }: Props) {
   const router = useRouter();
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [idx, setIdx] = useState(0);
+  const [showPlan, setShowPlan] = useState(false);
+  const [swapTarget, setSwapTarget] = useState<SessionExerciseEntry | null>(null);
   const [reps, setReps] = useState<number | null>(null);
   const [rir, setRir] = useState<number | null>(2);
   const [weightOverride, setWeightOverride] = useState<number | null>(null);
@@ -65,12 +88,6 @@ export default function ActiveWorkout({
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   const current = rows[idx];
-
-  useEffect(() => {
-    void startSessionAction(programDayId).then((r) => {
-      if (r.ok) setSessionId(r.sessionId);
-    });
-  }, [programDayId]);
 
   useEffect(() => {
     setReps(current?.isAmrap ? null : current?.repsPrescribed ?? null);
@@ -150,9 +167,9 @@ export default function ActiveWorkout({
   const groupRange = useMemo(() => {
     if (!current) return { from: 0, to: 0 };
     let from = idx;
-    while (from > 0 && rows[from - 1].programExerciseId === current.programExerciseId) from--;
+    while (from > 0 && rows[from - 1].sessionExerciseId === current.sessionExerciseId) from--;
     let to = idx;
-    while (to < rows.length - 1 && rows[to + 1].programExerciseId === current.programExerciseId) to++;
+    while (to < rows.length - 1 && rows[to + 1].sessionExerciseId === current.sessionExerciseId) to++;
     return { from, to };
   }, [idx, rows, current]);
 
@@ -173,13 +190,12 @@ export default function ActiveWorkout({
   }
 
   async function logCurrentSet() {
-    if (!sessionId) return toast.error("Session not ready");
     if (reps == null || !Number.isFinite(reps)) return toast.error("Enter reps");
     const weight = weightOverride ?? current.weightPrescribed ?? 0;
 
     const payload = {
       sessionId,
-      programExerciseId: current.programExerciseId,
+      sessionExerciseId: current.sessionExerciseId,
       exerciseId: current.exerciseId,
       setNumber: current.setNumber,
       repsPrescribed: current.repsPrescribed,
@@ -242,15 +258,27 @@ export default function ActiveWorkout({
   }
 
   async function finish() {
-    if (sessionId) await completeSessionAction(sessionId);
+    await completeSessionAction(sessionId);
     toast.success("Session complete");
+    router.push("/");
+    router.refresh();
+  }
+
+  async function endEarly() {
+    await endSessionEarlyAction(sessionId);
+    toast.success("Saved partial workout");
     router.push("/");
     router.refresh();
   }
 
   return (
     <main style={{ background: BP.bg, minHeight: "100dvh" }} className="relative pb-44">
-      <Header session={sessionLabel} elapsed={elapsedDisplay} onClose={() => router.push("/program")} />
+      <Header
+        session={sessionLabel}
+        elapsed={elapsedDisplay}
+        onClose={() => router.push("/program")}
+        onOpenPlan={() => setShowPlan(true)}
+      />
 
       <div className="px-5 flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
@@ -470,11 +498,48 @@ export default function ActiveWorkout({
         />
       ) : null}
 
+      {showPlan ? (
+        <PlanSheet
+          sessionId={sessionId}
+          entries={sessionExercises}
+          onClose={() => setShowPlan(false)}
+          onSwap={(entry) => setSwapTarget(entry)}
+        />
+      ) : null}
+
+      {swapTarget ? (
+        <ExerciseLibraryPicker
+          exercises={library}
+          excludeId={swapTarget.exerciseId}
+          title={`Swap ${swapTarget.name}`}
+          onClose={() => setSwapTarget(null)}
+          onPick={async (picked) => {
+            const r = await swapSessionExerciseAction({
+              sessionExerciseId: swapTarget.id,
+              newExerciseId: picked.id,
+            });
+            if (!r.ok) {
+              toast.error(r.error ?? "Swap failed");
+              return;
+            }
+            if (r.wasMainLift) {
+              toast.success(`Swapped — TM bump disabled for this session`);
+            } else {
+              toast.success(`Swapped to ${picked.name}`);
+            }
+            setSwapTarget(null);
+            setShowPlan(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
+
       {/* End of workout button */}
-      <div className="px-5 pt-2 mt-4">
+      <div className="px-5 pt-2 mt-4 flex gap-2">
         <BigButton
           kind="ghost"
           height={48}
+          style={{ flex: 1 }}
           onClick={async () => {
             if (!confirm("Finish workout now?")) return;
             await finish();
@@ -482,6 +547,18 @@ export default function ActiveWorkout({
           data-testid="finish-workout"
         >
           Finish workout
+        </BigButton>
+        <BigButton
+          kind="ghost"
+          height={48}
+          style={{ flex: 1 }}
+          onClick={async () => {
+            if (!confirm("End session early? Remaining exercises will be marked skipped.")) return;
+            await endEarly();
+          }}
+          data-testid="end-early"
+        >
+          End early
         </BigButton>
       </div>
     </main>
@@ -492,10 +569,12 @@ function Header({
   session,
   elapsed,
   onClose,
+  onOpenPlan,
 }: {
   session: string;
   elapsed: string;
   onClose: () => void;
+  onOpenPlan?: () => void;
 }) {
   const [head, ...rest] = session.split("—");
   return (
@@ -524,6 +603,25 @@ function Header({
         <Eyebrow>{head.trim()}</Eyebrow>
         <div className="text-sm font-semibold mt-px">{(rest.join("—") || "").trim()}</div>
       </div>
+      {onOpenPlan ? (
+        <button
+          onClick={onOpenPlan}
+          data-testid="open-plan"
+          style={{
+            height: 32,
+            padding: "0 10px",
+            borderRadius: 8,
+            border: `1px solid ${BP.borderSoft}`,
+            background: BP.surface,
+            color: BP.textMuted,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          Plan
+        </button>
+      ) : null}
       <Mono
         style={{
           fontSize: 12,
@@ -957,6 +1055,194 @@ function FullTimerOverlay({
         <BigButton kind="primary" height={56} style={{ flex: 1.6 }} onClick={onSkip}>
           Skip rest
         </BigButton>
+      </div>
+    </div>
+  );
+}
+
+function PlanSheet({
+  sessionId,
+  entries,
+  onClose,
+  onSwap,
+}: {
+  sessionId: string;
+  entries: SessionExerciseEntry[];
+  onClose: () => void;
+  onSwap: (entry: SessionExerciseEntry) => void;
+}) {
+  const router = useRouter();
+  const sorted = [...entries].sort((a, b) => a.orderIndex - b.orderIndex);
+
+  async function move(entryId: string, dir: -1 | 1) {
+    const i = sorted.findIndex((e) => e.id === entryId);
+    if (i < 0) return;
+    const j = i + dir;
+    if (j < 0 || j >= sorted.length) return;
+    const next = [...sorted];
+    [next[i], next[j]] = [next[j], next[i]];
+    const r = await reorderSessionExercisesAction({
+      sessionId,
+      orderedIds: next.map((e) => e.id),
+    });
+    if (r.ok) {
+      router.refresh();
+    } else {
+      toast.error("Reorder failed");
+    }
+  }
+
+  return (
+    <div
+      data-testid="plan-sheet"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 90,
+        background: "rgba(0,0,0,0.7)",
+        backdropFilter: "blur(8px)",
+        display: "flex",
+        alignItems: "flex-end",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth: 460,
+          margin: "0 auto",
+          background: "#141414",
+          borderRadius: "24px 24px 0 0",
+          padding: "16px 16px 22px",
+          border: `1px solid ${BP.border}`,
+          maxHeight: "85vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{ width: 40, height: 4, borderRadius: 2, background: "#3a3a3a", margin: "0 auto 12px" }}
+        />
+        <div className="flex items-center justify-between mb-3">
+          <Eyebrow>Today's plan</Eyebrow>
+          <button
+            onClick={onClose}
+            data-testid="plan-close"
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              border: `1px solid ${BP.borderSoft}`,
+              background: BP.surface,
+              color: BP.textMuted,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+        <div className="overflow-y-auto" style={{ flex: 1 }}>
+          <div className="flex flex-col gap-2">
+            {sorted.map((e, i) => (
+              <div
+                key={e.id}
+                data-testid={`plan-row-${e.id}`}
+                style={{
+                  background: BP.surface,
+                  border: `1px solid ${BP.borderSoft}`,
+                  borderRadius: 12,
+                  padding: "12px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  opacity: e.status === "completed" ? 0.6 : 1,
+                }}
+              >
+                <Mono
+                  style={{
+                    width: 22,
+                    color: BP.textDim,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    textAlign: "center",
+                  }}
+                >
+                  {i + 1}
+                </Mono>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[14px] font-semibold truncate">{e.name}</div>
+                    {e.swappedFromExerciseId ? (
+                      <Pill color={BP.accent}>swapped</Pill>
+                    ) : null}
+                    {e.isMainLift ? <Pill color={BP.textMuted}>main</Pill> : null}
+                  </div>
+                  <div className="text-[11px]" style={{ color: BP.textDim }}>
+                    {e.muscleGroup} · {e.status}
+                  </div>
+                </div>
+                <button
+                  onClick={() => move(e.id, -1)}
+                  disabled={i === 0 || e.status === "completed"}
+                  data-testid={`plan-up-${e.id}`}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    border: `1px solid ${BP.borderSoft}`,
+                    background: BP.surface2,
+                    color: BP.text,
+                    cursor: i === 0 || e.status === "completed" ? "not-allowed" : "pointer",
+                    opacity: i === 0 || e.status === "completed" ? 0.4 : 1,
+                  }}
+                >
+                  ↑
+                </button>
+                <button
+                  onClick={() => move(e.id, 1)}
+                  disabled={i === sorted.length - 1 || e.status === "completed"}
+                  data-testid={`plan-down-${e.id}`}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    border: `1px solid ${BP.borderSoft}`,
+                    background: BP.surface2,
+                    color: BP.text,
+                    cursor:
+                      i === sorted.length - 1 || e.status === "completed"
+                        ? "not-allowed"
+                        : "pointer",
+                    opacity:
+                      i === sorted.length - 1 || e.status === "completed" ? 0.4 : 1,
+                  }}
+                >
+                  ↓
+                </button>
+                <button
+                  onClick={() => onSwap(e)}
+                  disabled={e.status === "completed"}
+                  data-testid={`plan-swap-${e.id}`}
+                  style={{
+                    height: 32,
+                    padding: "0 10px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: BP.accent,
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: e.status === "completed" ? "not-allowed" : "pointer",
+                    opacity: e.status === "completed" ? 0.4 : 1,
+                  }}
+                >
+                  Swap
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

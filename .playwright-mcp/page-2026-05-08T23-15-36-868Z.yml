@@ -1,0 +1,74 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - main [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: Account
+        - generic [ref=e6]: Settings
+        - generic [ref=e7]:
+          - generic [ref=e8]: 1RMs
+          - generic [ref=e9]:
+            - generic [ref=e10]:
+              - generic [ref=e11]:
+                - generic [ref=e12]: Back squat
+                - generic [ref=e13]: Not set
+              - button "Edit" [ref=e14] [cursor=pointer]
+            - generic [ref=e15]:
+              - generic [ref=e16]:
+                - generic [ref=e17]: Deadlift
+                - generic [ref=e18]: Not set
+              - button "Edit" [ref=e19] [cursor=pointer]
+            - generic [ref=e20]:
+              - generic [ref=e21]:
+                - generic [ref=e22]: Overhead press
+                - generic [ref=e23]: Not set
+              - button "Edit" [ref=e24] [cursor=pointer]
+            - generic [ref=e25]:
+              - generic [ref=e26]:
+                - generic [ref=e27]: Bench press
+                - generic [ref=e28]: Not set
+              - generic [ref=e90]:
+                - spinbutton [ref=e91]
+                - button "Save" [ref=e92] [cursor=pointer]
+        - generic [ref=e30]:
+          - generic [ref=e31]: Units
+          - generic [ref=e33]:
+            - generic [ref=e35]: Weight units
+            - generic [ref=e36]:
+              - button "LB" [ref=e37] [cursor=pointer]
+              - button "KG" [ref=e38] [cursor=pointer]
+        - generic [ref=e39]:
+          - generic [ref=e40]: Program
+          - generic [ref=e41]:
+            - generic [ref=e43]:
+              - generic [ref=e44]: Current week
+              - generic [ref=e45]: Week 1 of 14
+            - generic [ref=e46]:
+              - generic [ref=e47]:
+                - generic [ref=e48]: Reset program
+                - generic [ref=e49]: Wipes sessions and sets, restarts week 1
+              - button "Reset" [ref=e50] [cursor=pointer]
+        - generic [ref=e55] [cursor=pointer]: Sign out
+        - generic [ref=e56]: BenchPilot v1.0 · 5/3/1 derived
+    - generic [ref=e57]:
+      - link "Home" [ref=e58] [cursor=pointer]:
+        - /url: /
+        - img [ref=e59]
+        - generic [ref=e61]: Home
+      - link "Workout" [ref=e62] [cursor=pointer]:
+        - /url: /workout
+        - img [ref=e63]
+        - generic [ref=e69]: Workout
+      - link "Program" [ref=e70] [cursor=pointer]:
+        - /url: /program
+        - img [ref=e71]
+        - generic [ref=e74]: Program
+      - link "Lifts" [ref=e75] [cursor=pointer]:
+        - /url: /lifts
+        - img [ref=e76]
+        - generic [ref=e82]: Lifts
+      - link "Settings" [ref=e83] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e84]
+        - generic [ref=e88]: Settings
+  - region "Notifications alt+T"
+  - alert [ref=e89]

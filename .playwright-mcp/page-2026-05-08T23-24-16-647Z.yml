@@ -1,0 +1,54 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - main [ref=e276]:
+      - generic [ref=e277]:
+        - button [ref=e278] [cursor=pointer]:
+          - img [ref=e279]
+        - generic [ref=e281]:
+          - generic [ref=e282]: Extra
+          - generic [ref=e283]: Off-schedule
+        - button "Plan" [ref=e284] [cursor=pointer]
+        - generic [ref=e285]: 0:06
+      - generic [ref=e288]: Hammer Curl · Set 1 of 3
+      - generic [ref=e293]:
+        - generic [ref=e294]: Working set
+        - generic [ref=e295]:
+          - generic [ref=e296]: —
+          - generic [ref=e297]: lb
+        - generic [ref=e298]:
+          - text: "Prescribed:"
+          - generic [ref=e299]: 8 reps
+          - text: · RIR 1
+      - generic [ref=e300]:
+        - generic [ref=e301]: Reps performed
+        - generic [ref=e302]:
+          - button "−" [ref=e303] [cursor=pointer]
+          - generic [ref=e304]:
+            - generic [ref=e305]: "8"
+            - generic [ref=e306]: reps
+          - button "＋" [ref=e307] [cursor=pointer]
+      - generic [ref=e309]:
+        - generic [ref=e310]:
+          - generic [ref=e311]: RIR · reps in reserve
+          - generic [ref=e312]: "1"
+        - generic [ref=e313]:
+          - button "0" [ref=e314] [cursor=pointer]
+          - button "1" [ref=e315] [cursor=pointer]
+          - button "2" [ref=e316] [cursor=pointer]
+          - button "3" [ref=e317] [cursor=pointer]
+          - button "4" [ref=e318] [cursor=pointer]
+      - generic [ref=e319]:
+        - generic [ref=e320]:
+          - text: "Weight:"
+          - generic [ref=e321]: — lb
+        - button "Override" [ref=e322] [cursor=pointer]
+      - generic [ref=e323]:
+        - button "Log set" [ref=e324] [cursor=pointer]:
+          - img [ref=e325]
+          - text: Log set
+        - button "Skip this set" [ref=e327] [cursor=pointer]
+      - generic [ref=e328]:
+        - button "Finish workout" [ref=e329] [cursor=pointer]
+        - button "End early" [ref=e330] [cursor=pointer]
+  - region "Notifications alt+T"
+  - alert [ref=e111]

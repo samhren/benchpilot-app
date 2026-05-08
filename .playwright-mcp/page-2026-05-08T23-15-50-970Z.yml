@@ -1,0 +1,86 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - main [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]:
+            - generic [ref=e7]: Week 1 · Day 5 · Fri
+            - generic [ref=e8]: Fri, May 8
+          - generic [ref=e9]: BP
+        - generic [ref=e12]:
+          - generic [ref=e13]:
+            - generic [ref=e14]: Today
+            - generic [ref=e15]: ≈ 48 min
+          - generic [ref=e16]: Upper A
+          - generic [ref=e17]: Heavy Bench
+          - generic [ref=e19]:
+            - generic [ref=e20]: Bench
+            - generic [ref=e21]:
+              - generic [ref=e22]: "155"
+              - generic [ref=e23]: × 5 × 5
+          - link "Start workout" [ref=e25] [cursor=pointer]:
+            - /url: /workout/c0ff0d85-cabd-4688-a612-651223ede573
+            - button "Start workout" [ref=e26]:
+              - img [ref=e27]
+              - text: Start workout
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - generic [ref=e31]: Training maxes
+            - generic [ref=e32]: tap to see history
+          - generic [ref=e33]:
+            - link "Bench 205 lb current TM" [ref=e34] [cursor=pointer]:
+              - /url: /lifts?l=bench_press
+              - button "Bench 205 lb current TM" [ref=e35]:
+                - generic [ref=e36]: Bench
+                - generic [ref=e37]:
+                  - generic [ref=e38]: "205"
+                  - generic [ref=e39]: lb
+                - generic [ref=e40]: current TM
+            - link "Squat — lb 1RM" [ref=e41] [cursor=pointer]:
+              - /url: /lifts?l=back_squat
+              - button "Squat — lb 1RM" [ref=e42]:
+                - generic [ref=e43]: Squat
+                - generic [ref=e44]:
+                  - generic [ref=e45]: —
+                  - generic [ref=e46]: lb
+                - generic [ref=e47]: 1RM
+            - link "Deadlift — lb 1RM" [ref=e48] [cursor=pointer]:
+              - /url: /lifts?l=deadlift
+              - button "Deadlift — lb 1RM" [ref=e49]:
+                - generic [ref=e50]: Deadlift
+                - generic [ref=e51]:
+                  - generic [ref=e52]: —
+                  - generic [ref=e53]: lb
+                - generic [ref=e54]: 1RM
+        - generic [ref=e56]:
+          - generic [ref=e58]:
+            - generic [ref=e59]: Bodyweight · 4 wk
+            - generic [ref=e60]:
+              - generic [ref=e61]: —
+              - generic [ref=e62]: lb
+          - button "＋ Log weight" [ref=e64] [cursor=pointer]:
+            - generic: ＋
+            - text: Log weight
+    - generic [ref=e65]:
+      - link "Home" [ref=e66] [cursor=pointer]:
+        - /url: /
+        - img [ref=e67]
+        - generic [ref=e69]: Home
+      - link "Workout" [ref=e70] [cursor=pointer]:
+        - /url: /workout
+        - img [ref=e71]
+        - generic [ref=e77]: Workout
+      - link "Program" [ref=e78] [cursor=pointer]:
+        - /url: /program
+        - img [ref=e79]
+        - generic [ref=e82]: Program
+      - link "Lifts" [ref=e83] [cursor=pointer]:
+        - /url: /lifts
+        - img [ref=e84]
+        - generic [ref=e90]: Lifts
+      - link "Settings" [ref=e91] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e92]
+        - generic [ref=e96]: Settings
+  - region "Notifications alt+T"
+  - alert [ref=e97]

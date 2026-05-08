@@ -6,13 +6,22 @@ import {
   getActiveProgram,
   getAllLifts,
   getBodyWeightsSinceDays,
+  getLastCompletedSessionAt,
+  getMissedDays,
   getNextScheduledDay,
   getProgramExercises,
 } from "@/lib/queries";
-import { computeProgramWeek, dayOfWeekFromJs } from "@/lib/program-state";
+import {
+  LONG_GAP_DAYS,
+  computeProgramWeek,
+  dayOfWeekFromJs,
+  shouldSuggestLongGapDeload,
+} from "@/lib/program-state";
 import { resolveBenchPrescription } from "@/lib/programming/training-max";
 import { BP, Eyebrow, Mono, Pill, BigButton, Card, Sparkline, StatCard } from "@/components/ui/primitives";
 import { LogWeightButton } from "@/components/log-weight-button";
+import { MissedDayBanner } from "@/components/missed-day-banner";
+import { LongGapDeloadModal } from "@/components/long-gap-deload-modal";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const SHORT_MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -26,6 +35,12 @@ export default async function Dashboard() {
   const dow = dayOfWeekFromJs(today);
 
   const next = await getNextScheduledDay(program.id);
+  const missed = await getMissedDays(program.id, today);
+  const lastCompletedAt = await getLastCompletedSessionAt();
+  const showLongGap = shouldSuggestLongGapDeload(lastCompletedAt, today);
+  const daysGone = lastCompletedAt
+    ? Math.floor((today.getTime() - lastCompletedAt.getTime()) / 86400000)
+    : LONG_GAP_DAYS;
   const lifts = await getAllLifts();
   const bench = lifts.find((l) => l.name === "bench_press") ?? null;
   const squat = lifts.find((l) => l.name === "back_squat") ?? null;
@@ -79,6 +94,20 @@ export default async function Dashboard() {
           BP
         </div>
       </div>
+
+      {missed.length > 0 ? (
+        <MissedDayBanner
+          missed={missed.map((m) => ({
+            programDayId: m.pd.id,
+            displayName: m.pd.displayName,
+            scheduledDate: m.scheduledDate,
+          }))}
+        />
+      ) : null}
+
+      {showLongGap && next ? (
+        <LongGapDeloadModal daysGone={daysGone} programDayId={next.id} />
+      ) : null}
 
       {/* Today's session card */}
       <div
@@ -146,6 +175,14 @@ export default async function Dashboard() {
             )}
           </div>
         </div>
+      </div>
+
+      <div className="mt-3">
+        <Link href="/workout/extra" data-testid="extra-link">
+          <BigButton kind="ghost" height={48}>
+            + Extra session
+          </BigButton>
+        </Link>
       </div>
 
       {/* Lifts row */}

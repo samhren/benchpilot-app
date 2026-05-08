@@ -1,0 +1,38 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - generic [ref=e112]:
+      - button "← Back" [ref=e113] [cursor=pointer]
+      - generic [ref=e114]: Off-schedule
+      - generic [ref=e115]:
+        - generic [ref=e116]: Extra session
+        - generic [ref=e117]: adhoc
+      - generic [ref=e118]: Build a one-off workout. Doesn't shift the program.
+      - generic [ref=e249]:
+        - generic [ref=e250]:
+          - generic [ref=e251]:
+            - generic [ref=e252]: Hammer Curl
+            - generic [ref=e253]: biceps
+          - button "×" [ref=e254] [cursor=pointer]
+        - generic [ref=e255]:
+          - generic [ref=e256]:
+            - generic [ref=e257]: Sets
+            - generic [ref=e258]:
+              - button "−" [ref=e259] [cursor=pointer]
+              - generic [ref=e260]: "3"
+              - button "+" [ref=e261] [cursor=pointer]
+          - generic [ref=e262]:
+            - generic [ref=e263]: Reps
+            - generic [ref=e264]:
+              - button "−" [ref=e265] [cursor=pointer]
+              - generic [ref=e266]: "8"
+              - button "+" [ref=e267] [cursor=pointer]
+          - generic [ref=e268]:
+            - generic [ref=e269]: RIR
+            - generic [ref=e270]:
+              - button "−" [ref=e271] [cursor=pointer]
+              - generic [ref=e272]: "1"
+              - button "+" [ref=e273] [cursor=pointer]
+      - button "+ Add exercise" [ref=e120] [cursor=pointer]
+      - button "Start session" [ref=e275] [cursor=pointer]
+  - region "Notifications alt+T"
+  - alert [ref=e111]
