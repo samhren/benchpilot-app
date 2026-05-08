@@ -57,9 +57,7 @@ export async function setLiftOneRmAction(input: z.infer<typeof SetOneRmSchema>) 
     notes: `Set 1RM = ${oneRm} lb → TM = ${tm} lb`,
   });
 
-  revalidatePath("/");
-  revalidatePath("/lifts");
-  revalidatePath("/settings");
+  revalidatePath("/", "layout");
   return { ok: true as const, tm };
 }
 
@@ -85,8 +83,7 @@ export async function manualSetTmAction(input: z.infer<typeof ManualTmSchema>) {
     notes: "Manual override",
   });
 
-  revalidatePath("/lifts");
-  revalidatePath("/");
+  revalidatePath("/", "layout");
   return { ok: true as const };
 }
 
@@ -160,8 +157,7 @@ export async function applyAmrapBumpAction(input: z.infer<typeof AmrapApplySchem
     amrapReps,
     notes: result.reason,
   });
-  revalidatePath("/lifts");
-  revalidatePath("/");
+  revalidatePath("/", "layout");
   return { ok: true as const, applied: true, ...result };
 }
 

@@ -20,9 +20,13 @@ export const BP = {
   amber: "var(--bp-amber)",
 } as const;
 
-export function Mono({ children, className, style }: React.HTMLAttributes<HTMLSpanElement>) {
+export function Mono({
+  children,
+  className,
+  ...rest
+}: React.HTMLAttributes<HTMLSpanElement>) {
   return (
-    <span className={cn("font-mono", className)} style={style}>
+    <span className={cn("font-mono", className)} {...rest}>
       {children}
     </span>
   );
@@ -77,9 +81,11 @@ export function Pill({
   color = BP.accent,
   bg,
   style,
+  ...rest
 }: { color?: string; bg?: string } & React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
+      {...rest}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -304,22 +310,4 @@ export function Chevron({ size = 12, color = BP.textDim, dir = "right" as "right
   );
 }
 
-export function calcPlates(weight: number, bar = 45): number[] {
-  const plates = [45, 35, 25, 10, 5, 2.5];
-  const perSide = (weight - bar) / 2;
-  if (perSide <= 0) return [];
-  let remaining = perSide;
-  const result: number[] = [];
-  for (const p of plates) {
-    while (remaining >= p - 0.001) {
-      result.push(p);
-      remaining -= p;
-    }
-  }
-  return result;
-}
-
-export function platesSummary(plates: number[]): string {
-  if (!plates.length) return "Bar only";
-  return plates.map((p) => (p % 1 === 0 ? p.toString() : p.toFixed(1))).join(" + ") + " / side";
-}
+export { calcPlates, platesSummary } from "@/lib/plates";

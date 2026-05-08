@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getAllLifts } from "@/lib/queries";
 import { db } from "@/lib/db";
 import { tmHistory } from "@/lib/db/schema";

@@ -8,17 +8,17 @@
 ## Phases
 
 - [x] P0: Plan files
-- [ ] P1: Scaffold (Next 15, TS, Tailwind, shadcn, Drizzle, PWA, Vitest, Playwright deps); docker-compose; .env.example; README skeleton
-- [ ] P2: Drizzle schema + drizzle.config + db client
-- [ ] P3: **Programming logic + Vitest tests** (training-max, amrap, blocks, prescription) — must pass
-- [ ] P4: Seed script (program + exercises + program_days + program_exercises)
-- [ ] P5: Auth (cookie session) + /signin + middleware
-- [ ] P6: Dashboard + /program calendar (match ./design/ visual)
-- [ ] P7: Active workout view (rest timer, plate calc, AMRAP modal, "last time") — pixel-match design
-- [ ] P8: PWA (@serwist/next), manifest, offline IndexedDB sync
-- [ ] P9: Lifts page (TM history), Settings (1RM input, bodyweight), History
-- [ ] P10: Playwright E2E tests + run via MCP if available
-- [ ] P11: Final README, polish
+- [x] P1: Scaffold
+- [x] P2: Drizzle schema + drizzle.config + db client
+- [x] P3: Programming logic + Vitest tests (65 passing)
+- [x] P4: Seed (98 program days, 28 exercises)
+- [x] P5: Auth + /signin + middleware
+- [x] P6: Dashboard + /program calendar
+- [x] P7: Active workout view (rest timer, plate calc, AMRAP modal, "last time")
+- [x] P8: PWA + offline IndexedDB sync
+- [x] P9: Lifts, Settings, History
+- [x] P10: Playwright E2E (7/7 passing)
+- [x] P11: Final README
 
 ## Key Decisions
 

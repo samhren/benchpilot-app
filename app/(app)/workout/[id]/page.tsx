@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
@@ -164,11 +166,10 @@ export default async function PreviewPage({ params }: { params: Promise<Params> 
           margin: "0 auto",
         }}
       >
-        <Link href={`/workout/${id}/active`}>
+        <Link href={`/workout/${id}/active`} data-testid="start-active">
           <BigButton
             kind="primary"
             height={64}
-            data-testid="start-active"
             icon={
               <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
                 <path d="M3 2l11 6-11 6V2z" fill="#fff" />

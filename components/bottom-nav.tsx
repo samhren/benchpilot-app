@@ -59,7 +59,7 @@ export function BottomNav() {
   const pathname = usePathname();
 
   // Hide bottom nav while inside an active workout, sign-in, etc.
-  if (pathname.startsWith("/workout/") && pathname.endsWith("/active")) return null;
+  if (pathname.startsWith("/workout/")) return null;
   if (pathname.startsWith("/signin")) return null;
 
   let active: string = "home";

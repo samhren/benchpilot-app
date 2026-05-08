@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getActiveProgram, getAllLifts, getSettings } from "@/lib/queries";
 import SettingsClient from "./settings-client";
 
