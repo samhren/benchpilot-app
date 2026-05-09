@@ -19,10 +19,17 @@ import {
 import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { resolveTrainingMax, resolveBenchPrescription } from "@/lib/programming/training-max";
 import { applyAmrapBump } from "@/lib/programming/amrap";
+import { isoDate } from "@/lib/program-state";
+
+async function getTimezone(): Promise<string> {
+  const [s] = await db.select().from(settings).limit(1);
+  return s?.timezone ?? "UTC";
+}
 
 export async function logBodyWeightAction(weightLb: number) {
   const v = z.number().positive().parse(weightLb);
-  const today = new Date().toISOString().slice(0, 10);
+  const tz = await getTimezone();
+  const today = isoDate(new Date(), tz);
   const [existing] = await db
     .select()
     .from(bodyWeightLogs)
@@ -428,6 +435,36 @@ export async function setUnitsAction(units: "lb" | "kg") {
   return { ok: true as const };
 }
 
+export async function setTimezoneAction(timezone: string) {
+  // Validate against the runtime's IANA list to avoid storing junk.
+  const valid = z
+    .string()
+    .min(1)
+    .max(100)
+    .refine(
+      (v) => {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: v });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { message: "Invalid IANA timezone" },
+    )
+    .safeParse(timezone);
+  if (!valid.success) return { ok: false as const, error: valid.error.message };
+  const tz = valid.data;
+  const [s] = await db.select().from(settings).limit(1);
+  if (s) {
+    await db.update(settings).set({ timezone: tz, updatedAt: new Date() }).where(eq(settings.id, s.id));
+  } else {
+    await db.insert(settings).values({ timezone: tz });
+  }
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
 export async function resetProgramAction() {
   // Delete all sessions and sets, reset week to 1
   await db.delete(workoutSets);
@@ -436,7 +473,7 @@ export async function resetProgramAction() {
   if (p) {
     await db
       .update(programs)
-      .set({ currentWeek: 1, status: "active", startDate: new Date().toISOString().slice(0, 10) })
+      .set({ currentWeek: 1, status: "active", startDate: isoDate(new Date(), await getTimezone()) })
       .where(eq(programs.id, p.id));
   }
   revalidatePath("/");

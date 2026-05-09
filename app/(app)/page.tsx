@@ -10,13 +10,15 @@ import {
   getMissedDays,
   getNextScheduledDay,
   getProgramExercises,
+  getSettings,
 } from "@/lib/queries";
 import {
   LONG_GAP_DAYS,
   computeProgramWeek,
-  dayOfWeekFromJs,
+  dayOfWeekInTz,
   shouldSuggestLongGapDeload,
 } from "@/lib/program-state";
+import { TimezoneBootstrap } from "@/components/timezone-bootstrap";
 import { resolveBenchPrescription } from "@/lib/programming/training-max";
 import { BP, Eyebrow, Mono, Pill, BigButton, Card, Sparkline, StatCard } from "@/components/ui/primitives";
 import { LogWeightButton } from "@/components/log-weight-button";
@@ -24,18 +26,19 @@ import { MissedDayBanner } from "@/components/missed-day-banner";
 import { LongGapDeloadModal } from "@/components/long-gap-deload-modal";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const SHORT_MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export default async function Dashboard() {
   const program = await getActiveProgram();
   if (!program) redirect("/settings");
 
+  const settingsRow = await getSettings();
+  const tz = settingsRow?.timezone ?? "UTC";
   const today = new Date();
-  const week = computeProgramWeek(program.startDate, today);
-  const dow = dayOfWeekFromJs(today);
+  const week = computeProgramWeek(program.startDate, today, tz);
+  const dow = dayOfWeekInTz(today, tz);
 
   const next = await getNextScheduledDay(program.id);
-  const missed = await getMissedDays(program.id, today);
+  const missed = await getMissedDays(program.id, today, tz);
   const lastCompletedAt = await getLastCompletedSessionAt();
   const showLongGap = shouldSuggestLongGapDeload(lastCompletedAt, today);
   const daysGone = lastCompletedAt
@@ -76,10 +79,20 @@ export default async function Dashboard() {
     }
   }
 
-  const dateLine = `${DAYS[today.getDay()]}, ${SHORT_MONTH[today.getMonth()]} ${today.getDate()}`;
+  const dateParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).formatToParts(today);
+  const wd = dateParts.find((p) => p.type === "weekday")?.value ?? "";
+  const mo = dateParts.find((p) => p.type === "month")?.value ?? "";
+  const da = dateParts.find((p) => p.type === "day")?.value ?? "";
+  const dateLine = `${wd}, ${mo} ${da}`;
 
   return (
     <div style={{ padding: "12px 20px 110px" }}>
+      <TimezoneBootstrap current={tz} />
       <div className="flex items-start justify-between pt-1">
         <div>
           <Eyebrow>

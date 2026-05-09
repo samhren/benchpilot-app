@@ -14,7 +14,7 @@ import {
   workoutSets,
 } from "@/lib/db/schema";
 import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
-import { dayOfWeekFromJs, isoDate, scheduledDateForDay } from "@/lib/program-state";
+import { isoDate, scheduledDateForDay } from "@/lib/program-state";
 
 export async function getActiveProgram() {
   const [p] = await db.select().from(programs).where(eq(programs.status, "active")).limit(1);
@@ -189,7 +189,7 @@ export async function getLastCompletedSessionAt(): Promise<Date | null> {
 
 // Days the user missed: scheduled date < today, no completed session,
 // and not marked done/skipped/rescheduled-to-future via dayStatus.
-export async function getMissedDays(programId: string, today = new Date()) {
+export async function getMissedDays(programId: string, today = new Date(), tz?: string) {
   const program = await db.select().from(programs).where(eq(programs.id, programId)).limit(1);
   const p = program[0];
   if (!p) return [];
@@ -212,13 +212,12 @@ export async function getMissedDays(programId: string, today = new Date()) {
     .where(eq(programDays.programId, programId))
     .orderBy(programDays.weekNumber, programDays.dayOfWeek);
 
-  const todayIso = isoDate(today);
+  const todayIso = isoDate(today, tz);
   const out: Array<{ pd: typeof programDays.$inferSelect; scheduledDate: string }> = [];
   for (const r of rows) {
     if (r.pd.sessionType === "rest") continue;
     if (r.sess) continue;
-    const scheduled = scheduledDateForDay(p.startDate, r.pd.weekNumber, r.pd.dayOfWeek);
-    const sIso = isoDate(scheduled);
+    const sIso = scheduledDateForDay(p.startDate, r.pd.weekNumber, r.pd.dayOfWeek);
     if (sIso >= todayIso) continue;
     if (r.ds) {
       // Treat skipped, done, or rescheduled-to-future as not-missed
@@ -230,8 +229,8 @@ export async function getMissedDays(programId: string, today = new Date()) {
   return out;
 }
 
-export async function getRescheduledDaysForToday(programId: string, today = new Date()) {
-  const todayIso = isoDate(today);
+export async function getRescheduledDaysForToday(programId: string, today = new Date(), tz?: string) {
+  const todayIso = isoDate(today, tz);
   const rows = await db
     .select({ pd: programDays, ds: dayStatus })
     .from(dayStatus)
@@ -255,10 +254,10 @@ export async function getDayStatus(programDayId: string) {
   return r ?? null;
 }
 
-export async function getBodyWeightsSinceDays(days: number) {
+export async function getBodyWeightsSinceDays(days: number, tz?: string) {
   const since = new Date();
   since.setDate(since.getDate() - days);
-  const dateStr = since.toISOString().slice(0, 10);
+  const dateStr = isoDate(since, tz);
   return db
     .select()
     .from(bodyWeightLogs)

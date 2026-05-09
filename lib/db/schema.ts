@@ -243,6 +243,7 @@ export const tmHistory = pgTable("tm_history", {
 export const settings = pgTable("settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   units: text("units").default("lb").notNull(),
+  timezone: text("timezone").default("UTC").notNull(),
   defaultRestMainSec: integer("default_rest_main_sec").default(180).notNull(),
   defaultRestAccessorySec: integer("default_rest_accessory_sec").default(90).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

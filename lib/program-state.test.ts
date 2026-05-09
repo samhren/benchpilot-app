@@ -3,7 +3,8 @@ import {
   LONG_GAP_DAYS,
   computeProgramWeek,
   dayOfWeekFromJs,
-  isoDate,
+  dayOfWeekInTz,
+  isoDateInTz,
   scheduledDateForDay,
   shouldSuggestLongGapDeload,
 } from "./program-state";
@@ -12,6 +13,17 @@ describe("dayOfWeekFromJs", () => {
   it("Monday is 1, Sunday is 7", () => {
     expect(dayOfWeekFromJs(new Date("2026-05-04T12:00:00"))).toBe(1); // Mon
     expect(dayOfWeekFromJs(new Date("2026-05-10T12:00:00"))).toBe(7); // Sun
+  });
+});
+
+describe("dayOfWeekInTz / isoDateInTz", () => {
+  it("rolls back to Friday in LA when UTC is past midnight Saturday", () => {
+    // 2026-05-09T05:00:00Z = Friday 2026-05-08 22:00 in America/Los_Angeles
+    const d = new Date("2026-05-09T05:00:00Z");
+    expect(dayOfWeekInTz(d, "America/Los_Angeles")).toBe(5); // Fri
+    expect(isoDateInTz(d, "America/Los_Angeles")).toBe("2026-05-08");
+    expect(dayOfWeekInTz(d, "UTC")).toBe(6); // Sat
+    expect(isoDateInTz(d, "UTC")).toBe("2026-05-09");
   });
 });
 
@@ -30,23 +42,20 @@ describe("computeProgramWeek", () => {
 describe("scheduledDateForDay", () => {
   it("returns the start date for week 1, dayOfWeek == start dayOfWeek", () => {
     // 2026-05-04 is a Monday → dow 1
-    const d = scheduledDateForDay("2026-05-04", 1, 1);
-    expect(isoDate(d)).toBe("2026-05-04");
+    expect(scheduledDateForDay("2026-05-04", 1, 1)).toBe("2026-05-04");
   });
   it("walks forward across weeks", () => {
-    const d = scheduledDateForDay("2026-05-04", 2, 1);
-    expect(isoDate(d)).toBe("2026-05-11");
+    expect(scheduledDateForDay("2026-05-04", 2, 1)).toBe("2026-05-11");
   });
   it("walks within a week", () => {
     // start Mon, dow 5 (Fri) of week 1 → Fri
-    const d = scheduledDateForDay("2026-05-04", 1, 5);
-    expect(isoDate(d)).toBe("2026-05-08");
+    expect(scheduledDateForDay("2026-05-04", 1, 5)).toBe("2026-05-08");
   });
   it("handles a non-Monday start", () => {
     // 2026-05-06 is Wed (dow 3). Week 1 dow 3 → 2026-05-06; week 1 dow 5 → 2026-05-08
-    expect(isoDate(scheduledDateForDay("2026-05-06", 1, 3))).toBe("2026-05-06");
-    expect(isoDate(scheduledDateForDay("2026-05-06", 1, 5))).toBe("2026-05-08");
-    expect(isoDate(scheduledDateForDay("2026-05-06", 2, 3))).toBe("2026-05-13");
+    expect(scheduledDateForDay("2026-05-06", 1, 3)).toBe("2026-05-06");
+    expect(scheduledDateForDay("2026-05-06", 1, 5)).toBe("2026-05-08");
+    expect(scheduledDateForDay("2026-05-06", 2, 3)).toBe("2026-05-13");
   });
 });
 

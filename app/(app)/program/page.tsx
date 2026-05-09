@@ -5,8 +5,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { workoutSessions, programDays } from "@/lib/db/schema";
 import { eq, isNotNull, and } from "drizzle-orm";
-import { getActiveProgram, getAllProgramDays } from "@/lib/queries";
-import { computeProgramWeek, dayOfWeekFromJs } from "@/lib/program-state";
+import { getActiveProgram, getAllProgramDays, getSettings } from "@/lib/queries";
+import { computeProgramWeek, dayOfWeekInTz } from "@/lib/program-state";
 import { BP, Eyebrow, Mono } from "@/components/ui/primitives";
 
 const SESSION_COLORS: Record<string, string> = {
@@ -51,9 +51,11 @@ export default async function ProgramPage() {
     .where(and(eq(programDays.programId, program.id), isNotNull(workoutSessions.completedAt)));
   const doneIds = new Set(completed.map((c) => c.pdId));
 
+  const settingsRow = await getSettings();
+  const tz = settingsRow?.timezone ?? "UTC";
   const today = new Date();
-  const currentWeek = computeProgramWeek(program.startDate, today);
-  const currentDay = dayOfWeekFromJs(today);
+  const currentWeek = computeProgramWeek(program.startDate, today, tz);
+  const currentDay = dayOfWeekInTz(today, tz);
 
   const byWeek: Record<number, typeof all> = {};
   for (const d of all) {
