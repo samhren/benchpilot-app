@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { workoutSessions } from "@/lib/db/schema";
+import { workoutSessions, workoutSets } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import {
   getAllExercises,
@@ -30,6 +30,15 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
   const settings = await getSettings();
   const allExercises = await getAllExercises();
   const benchTm = lifts.find((l) => l.name === "bench_press")?.trainingMax ?? null;
+  const loggedSets = await db
+    .select()
+    .from(workoutSets)
+    .where(eq(workoutSets.sessionId, sessionId));
+  const loggedMap = new Map<string, (typeof loggedSets)[number]>();
+  for (const s of loggedSets) {
+    if (!s.sessionExerciseId) continue;
+    loggedMap.set(`${s.sessionExerciseId}:${s.setNumber}`, s);
+  }
 
   const rows: SetRow[] = [];
   for (const e of exs) {
@@ -44,6 +53,7 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
         sessionExerciseId: e.se.id,
         exerciseId: e.ex.id,
         exerciseName: e.ex.name,
+        equipment: e.ex.equipment ?? null,
         setNumber: s + 1,
         totalSets,
         repsPrescribed: e.se.reps,
@@ -52,7 +62,20 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
         isAmrap: false,
         rirTarget: e.se.rirTarget,
         sessionLabel: "Extra session",
+        tempo: "controlled",
+        requiresWeightInput: true,
         last,
+        logged: (() => {
+          const r = loggedMap.get(`${e.se.id}:${s + 1}`);
+          return r
+            ? {
+                id: r.id,
+                repsCompleted: r.repsCompleted ?? 0,
+                weightUsed: r.weightUsed ?? 0,
+                rir: r.rir,
+              }
+            : null;
+        })(),
       });
     }
   }
@@ -66,6 +89,7 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
     status: e.se.status,
     swappedFromExerciseId: e.se.swappedFromExerciseId,
     isMainLift: e.se.liftId != null,
+    notes: e.se.notes ?? null,
   }));
   const library = allExercises.map((e) => ({
     id: e.id,
@@ -79,6 +103,9 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
       sessionId={sessionId}
       programDayId={null}
       sessionLabel={"Extra — Off-schedule"}
+      sessionType={"extra"}
+      sessionStartedAt={new Date(sess.startedAt).getTime()}
+      initialIdx={(await db.select({ id: workoutSets.id }).from(workoutSets).where(eq(workoutSets.sessionId, sessionId))).length}
       rows={rows}
       isBenchAmrapDay={false}
       benchTm={benchTm}

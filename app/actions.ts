@@ -227,6 +227,27 @@ export async function logSetAction(input: z.infer<typeof LogSetSchema>) {
   return { ok: true as const, set: row };
 }
 
+const UpdateSetSchema = z.object({
+  id: z.string().uuid(),
+  repsCompleted: z.number().int().min(0),
+  weightUsed: z.number(),
+  rir: z.number().int().min(0).max(10).nullable(),
+});
+
+export async function updateSetAction(input: z.infer<typeof UpdateSetSchema>) {
+  const data = UpdateSetSchema.parse(input);
+  const [row] = await db
+    .update(workoutSets)
+    .set({
+      repsCompleted: data.repsCompleted,
+      weightUsed: data.weightUsed,
+      rir: data.rir,
+    })
+    .where(eq(workoutSets.id, data.id))
+    .returning();
+  return { ok: true as const, set: row };
+}
+
 export async function completeSessionAction(sessionId: string) {
   // Mark any still-pending session_exercises as skipped, but only set status=completed on the session.
   await db
@@ -253,6 +274,23 @@ export async function endSessionEarlyAction(sessionId: string) {
     .where(and(eq(sessionExercises.sessionId, sessionId), eq(sessionExercises.status, "pending")));
   revalidatePath("/");
   revalidatePath("/history");
+  return { ok: true as const };
+}
+
+const SetSessionExerciseNotesSchema = z.object({
+  sessionExerciseId: z.string().uuid(),
+  notes: z.string().max(2000).nullable(),
+});
+
+export async function setSessionExerciseNotesAction(
+  input: z.infer<typeof SetSessionExerciseNotesSchema>,
+) {
+  const { sessionExerciseId, notes } = SetSessionExerciseNotesSchema.parse(input);
+  const trimmed = notes?.trim();
+  await db
+    .update(sessionExercises)
+    .set({ notes: trimmed && trimmed.length > 0 ? trimmed : null })
+    .where(eq(sessionExercises.id, sessionExerciseId));
   return { ok: true as const };
 }
 

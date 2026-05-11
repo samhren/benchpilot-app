@@ -9,6 +9,7 @@ import {
   getProgramExercises,
 } from "@/lib/queries";
 import { resolveBenchPrescription } from "@/lib/programming/training-max";
+import { getTempoForBenchSet, TEMPO_CHIP_LABEL } from "@/lib/programming/tempo";
 import { BP, Eyebrow, Mono, Pill } from "@/components/ui/primitives";
 import { StartWorkoutButton } from "@/components/start-workout-button";
 
@@ -97,6 +98,41 @@ export default async function PreviewPage({ params }: { params: Promise<Params> 
             const lastSet = last[i];
             const isMain = e.pe.percentageOfTm != null && e.pe.liftId;
             const w = isMain && benchTm != null ? resolveBenchPrescription(e.pe.percentageOfTm!, benchTm) : null;
+            const isUpper =
+              day.sessionType === "upper_a" ||
+              day.sessionType === "upper_b" ||
+              day.sessionType === "upper_c";
+            let previewTempoLabel: string | null = null;
+            if (isUpper && isMain && e.ex.name === "Bench Press") {
+              const sType = day.sessionType as "upper_a" | "upper_b" | "upper_c";
+              const wave = Array.isArray(e.pe.wavePlan)
+                ? (e.pe.wavePlan as Array<{ percentage: number; isAmrap?: boolean }>)
+                : null;
+              if (wave && wave.length > 0) {
+                const tempos = new Set(
+                  wave.map((s) =>
+                    getTempoForBenchSet({
+                      sessionType: sType,
+                      percentage: s.percentage,
+                      isAmrap: !!s.isAmrap,
+                      isMainLift: true,
+                    }),
+                  ),
+                );
+                previewTempoLabel =
+                  tempos.size === 1
+                    ? TEMPO_CHIP_LABEL[[...tempos][0]]
+                    : "Mixed: TnG → Pause";
+              } else if (e.pe.percentageOfTm != null) {
+                const t = getTempoForBenchSet({
+                  sessionType: sType,
+                  percentage: e.pe.percentageOfTm,
+                  isAmrap: !!e.pe.isAmrapTopSet,
+                  isMainLift: true,
+                });
+                if (t !== "controlled") previewTempoLabel = TEMPO_CHIP_LABEL[t];
+              }
+            }
             return (
               <div
                 key={e.pe.id}
@@ -153,6 +189,37 @@ export default async function PreviewPage({ params }: { params: Promise<Params> 
                       })()}
                     </Mono>
                   </div>
+                  {previewTempoLabel ? (
+                    <div
+                      data-testid="preview-tempo"
+                      className="mt-1.5"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        height: 22,
+                        padding: "0 8px",
+                        borderRadius: 999,
+                        background: "rgba(255,47,47,0.12)",
+                        border: "1px solid rgba(255,47,47,0.42)",
+                        color: "#ff5252",
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      <span
+                        aria-hidden
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 999,
+                          background: "#ff2f2f",
+                        }}
+                      />
+                      {previewTempoLabel}
+                    </div>
+                  ) : null}
                   {lastSet ? (
                     <div className="text-[11px] mt-1.5" style={{ color: BP.textFaint }}>
                       Last: <Mono>{lastSet.repsCompleted}</Mono> reps @ <Mono>{lastSet.weightUsed}</Mono> lb

@@ -10,13 +10,21 @@ import {
   endSessionEarlyAction,
   logSetAction,
   reorderSessionExercisesAction,
+  setSessionExerciseNotesAction,
   swapSessionExerciseAction,
+  updateSetAction,
 } from "@/app/actions";
 import { offlineQueue } from "@/lib/offline";
 import {
   ExerciseLibraryPicker,
   type LibraryExercise,
 } from "@/components/exercise-library-picker";
+import {
+  TEMPO_CHIP_LABEL,
+  TEMPO_EXPLANATION,
+  getSessionTempoSummary,
+  type Tempo,
+} from "@/lib/programming/tempo";
 
 export interface SetRow {
   kind: "main" | "accessory";
@@ -31,7 +39,16 @@ export interface SetRow {
   isAmrap: boolean;
   rirTarget: number | null;
   sessionLabel: string;
+  tempo: Tempo;
+  equipment: string | null;
+  requiresWeightInput: boolean;
   last: { reps: number; weight: number } | null;
+  logged: {
+    id: string;
+    repsCompleted: number;
+    weightUsed: number;
+    rir: number | null;
+  } | null;
 }
 
 export interface SessionExerciseEntry {
@@ -43,12 +60,16 @@ export interface SessionExerciseEntry {
   status: "pending" | "completed" | "skipped" | "partial";
   swappedFromExerciseId: string | null;
   isMainLift: boolean;
+  notes: string | null;
 }
 
 interface Props {
   sessionId: string;
   programDayId?: string | null;
   sessionLabel: string;
+  sessionType: string;
+  sessionStartedAt: number;
+  initialIdx: number;
   rows: SetRow[];
   isBenchAmrapDay: boolean;
   benchTm: number | null;
@@ -61,6 +82,9 @@ interface Props {
 export default function ActiveWorkout({
   sessionId,
   sessionLabel,
+  sessionType,
+  sessionStartedAt,
+  initialIdx,
   rows,
   benchTm,
   restMainSec,
@@ -69,7 +93,7 @@ export default function ActiveWorkout({
   library,
 }: Props) {
   const router = useRouter();
-  const [idx, setIdx] = useState(0);
+  const [idx, setIdx] = useState(() => Math.min(initialIdx, Math.max(0, rows.length - 1)));
   const [showPlan, setShowPlan] = useState(false);
   const [swapTarget, setSwapTarget] = useState<SessionExerciseEntry | null>(null);
   const [reps, setReps] = useState<number | null>(null);
@@ -83,19 +107,64 @@ export default function ActiveWorkout({
   const [showPlates, setShowPlates] = useState(false);
   const [bumpData, setBumpData] = useState<{ amrapReps: number; oldTm: number; newTm: number; bump: number; reason: string } | null>(null);
   const [completed, setCompleted] = useState<Record<number, { reps: number; weight: number }>>({});
-  const [startedAt] = useState(() => Date.now());
+  const [startedAt] = useState(() => sessionStartedAt);
   const [now, setNow] = useState(Date.now());
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const [tempoSheet, setTempoSheet] = useState<Tempo | null>(null);
+  const [showTempo, setShowTempo] = useState(true);
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("bp:showTempo");
+      if (v === "0") setShowTempo(false);
+    } catch {}
+  }, []);
+  const sessionTempoSummary =
+    sessionType === "upper_a" || sessionType === "upper_b" || sessionType === "upper_c"
+      ? getSessionTempoSummary(sessionType)
+      : null;
 
   const current = rows[idx];
+  const currentEntry = sessionExercises.find((e) => e.id === current?.sessionExerciseId) ?? null;
+  const [noteEditing, setNoteEditing] = useState(false);
+  const [localNotes, setLocalNotes] = useState<Record<string, string | null>>({});
+  const currentNote = current
+    ? localNotes[current.sessionExerciseId] ?? currentEntry?.notes ?? null
+    : null;
+  const showTempoChip =
+    showTempo &&
+    current?.exerciseName === "Bench Press" &&
+    !!current?.tempo &&
+    current.tempo !== "controlled";
 
   useEffect(() => {
-    setReps(current?.isAmrap ? null : current?.repsPrescribed ?? null);
-    setRir(current?.kind === "main" ? 2 : 1);
-    setWeightOverride(null);
+    if (current?.logged) {
+      setReps(current.logged.repsCompleted);
+      setRir(current.logged.rir);
+      setWeightOverride(
+        current.requiresWeightInput
+          ? current.logged.weightUsed
+          : current.weightPrescribed != null && current.logged.weightUsed === current.weightPrescribed
+            ? null
+            : current.logged.weightUsed,
+      );
+    } else {
+      setReps(current?.isAmrap ? null : current?.repsPrescribed ?? null);
+      setRir(current?.kind === "main" ? 2 : 1);
+      // For non-bench rows the user must enter weight each set; pre-fill with last
+      // session's weight if available so they only have to adjust.
+      setWeightOverride(current?.requiresWeightInput ? current?.last?.weight ?? null : null);
+    }
     setShowPlates(false);
-  }, [idx, current?.isAmrap, current?.kind, current?.repsPrescribed]);
+  }, [
+    idx,
+    current?.isAmrap,
+    current?.kind,
+    current?.repsPrescribed,
+    current?.requiresWeightInput,
+    current?.last?.weight,
+    current?.logged?.id,
+  ]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -197,8 +266,14 @@ export default function ActiveWorkout({
   const elapsedSec = Math.floor(((now - startedAt) % 60000) / 1000);
   const elapsedDisplay = `${elapsedMin}:${String(elapsedSec).padStart(2, "0")}`;
 
-  const weightDisplay = weightOverride ?? current?.weightPrescribed ?? null;
-  const plates = useMemo(() => (weightDisplay ? calcPlates(weightDisplay) : []), [weightDisplay]);
+  const weightDisplay = current?.requiresWeightInput
+    ? weightOverride
+    : weightOverride ?? current?.weightPrescribed ?? null;
+  const showPlateCalc = current?.equipment === "barbell" && weightDisplay != null;
+  const plates = useMemo(
+    () => (showPlateCalc && weightDisplay ? calcPlates(weightDisplay) : []),
+    [showPlateCalc, weightDisplay],
+  );
 
   // Group sets by exercise for the dot progress: dots reflect sets within current exercise group
   const groupRange = useMemo(() => {
@@ -228,7 +303,29 @@ export default function ActiveWorkout({
 
   async function logCurrentSet() {
     if (reps == null || !Number.isFinite(reps)) return toast.error("Enter reps");
-    const weight = weightOverride ?? current.weightPrescribed ?? 0;
+    if (current.requiresWeightInput && (weightOverride == null || !Number.isFinite(weightOverride))) {
+      return toast.error("Enter weight");
+    }
+    const weight = current.requiresWeightInput
+      ? weightOverride ?? 0
+      : weightOverride ?? current.weightPrescribed ?? 0;
+
+    // Editing a previously-logged set: update in place, don't re-trigger AMRAP bump or advance.
+    if (current.logged) {
+      const r = await updateSetAction({
+        id: current.logged.id,
+        repsCompleted: reps,
+        weightUsed: weight,
+        rir: current.isAmrap ? 0 : rir,
+      }).catch(() => ({ ok: false as const }));
+      if (!r.ok) {
+        toast.error("Update failed");
+        return;
+      }
+      toast.success("Set updated");
+      router.refresh();
+      return;
+    }
 
     const payload = {
       sessionId,
@@ -314,10 +411,24 @@ export default function ActiveWorkout({
         onClose={() => router.push("/program")}
         onOpenPlan={() => setShowPlan(true)}
       />
+      {showTempo && sessionTempoSummary ? (
+        <div
+          className="px-5 -mt-2 mb-3 text-[12px]"
+          style={{ color: BP.textDim, fontWeight: 500 }}
+          data-testid="session-tempo-summary"
+        >
+          {sessionTempoSummary}
+        </div>
+      ) : null}
 
       <div className="px-5 flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
           {current.isAmrap ? <Pill>AMRAP</Pill> : null}
+          {current.logged ? (
+            <Pill bg={BP.surface2} color={BP.textMuted}>
+              Logged
+            </Pill>
+          ) : null}
           <span className="text-[13px]" style={{ color: BP.textMuted }}>
             {current.exerciseName} · Set {current.setNumber} of {current.totalSets}
           </span>
@@ -329,21 +440,36 @@ export default function ActiveWorkout({
         <Eyebrow>
           {current.percentage ? `${current.kind === "main" ? "Top" : "Working"} set · ${current.percentage}% TM` : "Working set"}
         </Eyebrow>
-        <div className="flex items-baseline justify-center gap-2.5 mt-2" style={{ lineHeight: 0.85 }}>
-          <Mono
-            data-testid="prescribed-weight"
+        {current.requiresWeightInput ? (
+          <div
+            className="mt-2"
             style={{
-              fontSize: current.isAmrap ? 148 : 132,
-              fontWeight: 800,
-              letterSpacing: "-0.06em",
-              color: BP.text,
-              textShadow: current.isAmrap ? "0 0 60px rgba(255,47,47,0.18)" : undefined,
+              fontSize: 22,
+              fontWeight: 700,
+              color: BP.textMuted,
+              letterSpacing: "-0.02em",
             }}
+            data-testid="prescribed-weight"
           >
-            {weightDisplay ?? "—"}
-          </Mono>
-          <Mono style={{ fontSize: 26, fontWeight: 600, color: BP.textDim, marginBottom: 12 }}>lb</Mono>
-        </div>
+            Enter weight below
+          </div>
+        ) : (
+          <div className="flex items-baseline justify-center gap-2.5 mt-2" style={{ lineHeight: 0.85 }}>
+            <Mono
+              data-testid="prescribed-weight"
+              style={{
+                fontSize: current.isAmrap ? 148 : 132,
+                fontWeight: 800,
+                letterSpacing: "-0.06em",
+                color: BP.text,
+                textShadow: current.isAmrap ? "0 0 60px rgba(255,47,47,0.18)" : undefined,
+              }}
+            >
+              {weightDisplay ?? "—"}
+            </Mono>
+            <Mono style={{ fontSize: 26, fontWeight: 600, color: BP.textDim, marginBottom: 12 }}>lb</Mono>
+          </div>
+        )}
         <div className="mt-2.5 text-sm" style={{ color: BP.textMuted }}>
           {current.isAmrap ? (
             <>Top set · 1 × max reps</>
@@ -360,10 +486,15 @@ export default function ActiveWorkout({
             <Mono>{current.last.weight}</Mono> lb
           </div>
         ) : null}
+        {showTempoChip ? (
+          <div className="mt-3 flex justify-center">
+            <TempoChip tempo={current.tempo} onTap={() => setTempoSheet(current.tempo)} />
+          </div>
+        ) : null}
       </div>
 
       {/* Plate calc */}
-      {weightDisplay ? (
+      {showPlateCalc ? (
         <div className="px-5 pt-6">
           <button
             onClick={() => setShowPlates((s) => !s)}
@@ -433,15 +564,75 @@ export default function ActiveWorkout({
         </div>
       ) : null}
 
-      {/* Weight override row */}
-      <div className="px-5 pt-3 flex items-center justify-between">
-        <span className="text-[13px]" style={{ color: BP.textMuted }}>
-          Weight: <Mono style={{ color: BP.text, fontWeight: 600 }}>{weightDisplay ?? "—"} lb</Mono>
-        </span>
-        <WeightOverride value={weightOverride} fallback={current.weightPrescribed} onChange={setWeightOverride} />
+      {/* Weight row */}
+      {current.requiresWeightInput ? (
+        <div className="px-5 pt-4">
+          <div
+            className="mb-2 ml-1"
+            style={{
+              fontSize: 12,
+              color: BP.textDim,
+              fontWeight: 600,
+              letterSpacing: 0.5,
+              textTransform: "uppercase",
+            }}
+          >
+            Weight used
+            {current.equipment === "bodyweight" ? (
+              <span style={{ marginLeft: 6, color: BP.textFaint, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>
+                (added load · 0 = bodyweight only)
+              </span>
+            ) : null}
+          </div>
+          <WeightInput
+            value={weightOverride}
+            onChange={setWeightOverride}
+            placeholder={current.last ? String(current.last.weight) : "0"}
+          />
+          {current.last ? (
+            <div className="text-[12px] mt-1.5 ml-1" style={{ color: BP.textFaint }}>
+              Last: <Mono>{current.last.weight}</Mono> lb × <Mono>{current.last.reps}</Mono>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="px-5 pt-3 flex items-center justify-between">
+          <span className="text-[13px]" style={{ color: BP.textMuted }}>
+            Weight: <Mono style={{ color: BP.text, fontWeight: 600 }}>{weightDisplay ?? "—"} lb</Mono>
+          </span>
+          <WeightOverride value={weightOverride} fallback={current.weightPrescribed} onChange={setWeightOverride} />
+        </div>
+      )}
+
+      <div className="px-5 pt-3">
+        <button
+          onClick={() => setNoteEditing(true)}
+          data-testid="exercise-note-toggle"
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 12px",
+            background: BP.surface,
+            border: `1px solid ${BP.borderSoft}`,
+            borderRadius: 12,
+            color: currentNote ? BP.text : BP.textMuted,
+            fontSize: 13,
+            textAlign: "left",
+            cursor: "pointer",
+          }}
+        >
+          <svg width={14} height={14} viewBox="0 0 14 14" fill="none" aria-hidden>
+            <path d="M2 2h10v8H6l-4 3V2z" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round" />
+          </svg>
+          <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {currentNote ?? "Add note for this exercise"}
+          </span>
+        </button>
       </div>
 
-      <div className="px-5 pt-5">
+      <div className="px-5 pt-3">
         <BigButton
           kind="primary"
           height={64}
@@ -453,26 +644,57 @@ export default function ActiveWorkout({
             </svg>
           }
         >
-          {current.isAmrap ? "Log AMRAP set" : "Log set"}
+          {current.logged
+            ? "Update set"
+            : current.isAmrap
+              ? "Log AMRAP set"
+              : "Log set"}
         </BigButton>
 
-        <button
-          onClick={() => {
-            if (!confirm("Skip this set?")) return;
-            setIdx((i) => Math.min(rows.length - 1, i + 1));
-          }}
-          className="mt-2 w-full text-sm"
-          style={{
-            height: 44,
-            background: "transparent",
-            color: BP.textMuted,
-            border: "none",
-            cursor: "pointer",
-          }}
-          data-testid="skip-set"
-        >
-          Skip this set
-        </button>
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={() => setIdx((i) => Math.max(0, i - 1))}
+            disabled={idx === 0}
+            data-testid="prev-set"
+            style={{
+              flex: 1,
+              height: 44,
+              background: "transparent",
+              color: idx === 0 ? BP.textFaint : BP.textMuted,
+              border: `1px solid ${BP.borderSoft}`,
+              borderRadius: 10,
+              cursor: idx === 0 ? "default" : "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            ← Previous
+          </button>
+          <button
+            onClick={() => {
+              if (current.logged) {
+                setIdx((i) => Math.min(rows.length - 1, i + 1));
+                return;
+              }
+              if (!confirm("Skip this set?")) return;
+              setIdx((i) => Math.min(rows.length - 1, i + 1));
+            }}
+            data-testid="skip-set"
+            style={{
+              flex: 1,
+              height: 44,
+              background: "transparent",
+              color: BP.textMuted,
+              border: `1px solid ${BP.borderSoft}`,
+              borderRadius: 10,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            {current.logged ? "Next →" : "Skip this set"}
+          </button>
+        </div>
       </div>
 
       {/* Rest banner */}
@@ -494,6 +716,28 @@ export default function ActiveWorkout({
           onSkip={() => {
             clearRest();
             setShowFullTimer(false);
+          }}
+        />
+      ) : null}
+
+      {tempoSheet ? (
+        <TempoSheet tempo={tempoSheet} onClose={() => setTempoSheet(null)} />
+      ) : null}
+
+      {noteEditing && current ? (
+        <NoteSheet
+          exerciseName={current.exerciseName}
+          initial={currentNote}
+          onClose={() => setNoteEditing(false)}
+          onSave={async (next) => {
+            const sessionExerciseId = current.sessionExerciseId;
+            setLocalNotes((m) => ({ ...m, [sessionExerciseId]: next }));
+            setNoteEditing(false);
+            const r = await setSessionExerciseNotesAction({
+              sessionExerciseId,
+              notes: next,
+            }).catch(() => ({ ok: false as const }));
+            if (!r.ok) toast.error("Note save failed");
           }}
         />
       ) : null}
@@ -782,6 +1026,107 @@ function RIRPicker({ value, onChange }: { value: number; onChange: (v: number) =
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function WeightInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: number | null;
+  onChange: (n: number | null) => void;
+  placeholder?: string;
+}) {
+  const [v, setV] = useState(value != null ? String(value) : "");
+  useEffect(() => {
+    setV(value != null ? String(value) : "");
+  }, [value]);
+  function commit(next: string) {
+    setV(next);
+    if (next.trim() === "") {
+      onChange(null);
+      return;
+    }
+    const n = parseFloat(next);
+    onChange(Number.isFinite(n) ? n : null);
+  }
+  function step(delta: number) {
+    const base = value ?? 0;
+    const next = Math.max(0, base + delta);
+    commit(String(next));
+  }
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        background: BP.surface,
+        border: `1px solid ${BP.borderSoft}`,
+        borderRadius: 14,
+        padding: 6,
+      }}
+    >
+      <button
+        onClick={() => step(-5)}
+        data-testid="weight-minus"
+        aria-label="-5 lb"
+        style={{
+          width: 56,
+          height: 52,
+          borderRadius: 10,
+          background: BP.surface2,
+          border: "none",
+          color: BP.text,
+          fontSize: 22,
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        −
+      </button>
+      <input
+        type="number"
+        inputMode="decimal"
+        value={v}
+        onChange={(e) => commit(e.target.value)}
+        placeholder={placeholder ?? "0"}
+        data-testid="weight-input"
+        className="font-mono"
+        style={{
+          flex: 1,
+          height: 52,
+          margin: "0 8px",
+          padding: "0 8px",
+          textAlign: "center",
+          fontSize: 28,
+          fontWeight: 800,
+          background: "transparent",
+          border: "none",
+          color: BP.text,
+          outline: "none",
+          letterSpacing: "-0.02em",
+        }}
+      />
+      <button
+        onClick={() => step(5)}
+        data-testid="weight-plus"
+        aria-label="+5 lb"
+        style={{
+          width: 56,
+          height: 52,
+          borderRadius: 10,
+          background: BP.surface2,
+          border: "none",
+          color: BP.text,
+          fontSize: 22,
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        +
+      </button>
     </div>
   );
 }
@@ -1371,6 +1716,191 @@ function AMRAPBumpModal({
               Hold for now
             </BigButton>
           ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TempoChip({ tempo, onTap }: { tempo: Tempo; onTap: () => void }) {
+  if (tempo === "controlled") return null;
+  const isPause = tempo === "pause_1s" || tempo === "pause_1s_first_rep";
+  const dotColor = isPause ? "#ff2f2f" : "#cfcfcf";
+  const bg = isPause ? "rgba(255,47,47,0.12)" : BP.surface2;
+  const border = isPause ? "rgba(255,47,47,0.42)" : BP.borderSoft;
+  const fg = isPause ? "#ff5252" : BP.text;
+  return (
+    <button
+      type="button"
+      onClick={onTap}
+      data-testid="tempo-chip"
+      data-tempo={tempo}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        height: 30,
+        padding: "0 12px",
+        borderRadius: 999,
+        background: bg,
+        border: `1px solid ${border}`,
+        color: fg,
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: 0.3,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          background: dotColor,
+          boxShadow: isPause ? "0 0 6px rgba(255,47,47,0.6)" : "none",
+        }}
+      />
+      {TEMPO_CHIP_LABEL[tempo]}
+    </button>
+  );
+}
+
+function TempoSheet({ tempo, onClose }: { tempo: Tempo; onClose: () => void }) {
+  if (tempo === "controlled") return null;
+  return (
+    <div
+      onClick={onClose}
+      data-testid="tempo-sheet"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.55)",
+        zIndex: 60,
+        display: "flex",
+        alignItems: "flex-end",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: BP.surface,
+          borderTopLeftRadius: 18,
+          borderTopRightRadius: 18,
+          borderTop: `1px solid ${BP.borderSoft}`,
+          width: "100%",
+          maxWidth: 420,
+          margin: "0 auto",
+          padding: "18px 20px 28px",
+        }}
+      >
+        <div
+          style={{
+            width: 40,
+            height: 4,
+            borderRadius: 2,
+            background: BP.borderSoft,
+            margin: "0 auto 14px",
+          }}
+        />
+        <div style={{ fontSize: 16, fontWeight: 800, color: BP.text, marginBottom: 10 }}>
+          {TEMPO_CHIP_LABEL[tempo]}
+        </div>
+        <div style={{ fontSize: 14, lineHeight: 1.5, color: BP.textMuted }}>
+          {TEMPO_EXPLANATION[tempo]}
+        </div>
+        <BigButton kind="dark" height={48} onClick={onClose} style={{ marginTop: 16 }}>
+          Got it
+        </BigButton>
+      </div>
+    </div>
+  );
+}
+
+function NoteSheet({
+  exerciseName,
+  initial,
+  onClose,
+  onSave,
+}: {
+  exerciseName: string;
+  initial: string | null;
+  onClose: () => void;
+  onSave: (next: string | null) => void;
+}) {
+  const [v, setV] = useState(initial ?? "");
+  return (
+    <div
+      onClick={onClose}
+      data-testid="note-sheet"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.55)",
+        zIndex: 60,
+        display: "flex",
+        alignItems: "flex-end",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: BP.surface,
+          borderTopLeftRadius: 18,
+          borderTopRightRadius: 18,
+          borderTop: `1px solid ${BP.borderSoft}`,
+          width: "100%",
+          maxWidth: 420,
+          margin: "0 auto",
+          padding: "18px 20px 28px",
+        }}
+      >
+        <div
+          style={{
+            width: 40,
+            height: 4,
+            borderRadius: 2,
+            background: BP.borderSoft,
+            margin: "0 auto 14px",
+          }}
+        />
+        <Eyebrow>Note · {exerciseName}</Eyebrow>
+        <textarea
+          autoFocus
+          data-testid="note-textarea"
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          placeholder="Felt strong / shoulder twinge / form cue…"
+          rows={5}
+          style={{
+            width: "100%",
+            marginTop: 10,
+            background: BP.surface2,
+            border: `1px solid ${BP.borderSoft}`,
+            borderRadius: 12,
+            color: BP.text,
+            padding: "12px 14px",
+            fontSize: 15,
+            lineHeight: 1.4,
+            outline: "none",
+            resize: "vertical",
+            minHeight: 110,
+          }}
+        />
+        <div className="flex gap-2 mt-3">
+          <BigButton kind="dark" height={48} onClick={onClose} style={{ flex: 1 }}>
+            Cancel
+          </BigButton>
+          <BigButton
+            kind="primary"
+            height={48}
+            onClick={() => onSave(v.trim().length === 0 ? null : v.trim())}
+            data-testid="note-save"
+            style={{ flex: 2 }}
+          >
+            Save
+          </BigButton>
         </div>
       </div>
     </div>

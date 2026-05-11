@@ -1,6 +1,9 @@
 export const dynamic = "force-dynamic";
 
 import { notFound, redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { workoutSessions, workoutSets } from "@/lib/db/schema";
 import {
   getAllExercises,
   getAllLifts,
@@ -10,6 +13,7 @@ import {
   getSettings,
 } from "@/lib/queries";
 import { startSessionAction } from "@/app/actions";
+import { getTempoForBenchSet } from "@/lib/programming/tempo";
 import ActiveWorkout, { type SetRow } from "./active-client";
 
 interface Params { id: string }
@@ -35,6 +39,24 @@ export default async function ActivePage({
   const sessionId = startResult.sessionId;
 
   const exs = await getSessionExercises(sessionId);
+  const [sessionRow] = await db
+    .select()
+    .from(workoutSessions)
+    .where(eq(workoutSessions.id, sessionId))
+    .limit(1);
+  const sessionStartedAt = sessionRow?.startedAt
+    ? new Date(sessionRow.startedAt).getTime()
+    : Date.now();
+  const loggedSets = await db
+    .select()
+    .from(workoutSets)
+    .where(eq(workoutSets.sessionId, sessionId));
+  const initialIdx = loggedSets.length;
+  const loggedMap = new Map<string, (typeof loggedSets)[number]>();
+  for (const s of loggedSets) {
+    if (!s.sessionExerciseId) continue;
+    loggedMap.set(`${s.sessionExerciseId}:${s.setNumber}`, s);
+  }
   const lifts = await getAllLifts();
   const settings = await getSettings();
   const allExercises = await getAllExercises();
@@ -60,41 +82,95 @@ export default async function ActivePage({
       const totalSets = plan.reduce((acc, p) => acc + p.sets, 0);
       for (const p of plan) {
         for (let s = 0; s < p.sets; s++) {
+          const isMainLift = e.se.liftId != null;
+          const isAmrap = !!p.isAmrap;
+          const tempo =
+            day.sessionType === "upper_a" ||
+            day.sessionType === "upper_b" ||
+            day.sessionType === "upper_c"
+              ? getTempoForBenchSet({
+                  sessionType: day.sessionType,
+                  percentage: p.percentage,
+                  isAmrap,
+                  isMainLift,
+                })
+              : "controlled";
+          const wp =
+            benchTm != null ? Math.round((benchTm * p.percentage) / 100 / 5) * 5 : null;
+          const setNum = setNumber++;
+          const loggedRow = loggedMap.get(`${e.se.id}:${setNum}`);
           rows.push({
             kind: "main",
             sessionExerciseId: e.se.id,
             exerciseId: e.ex.id,
             exerciseName: e.ex.name,
-            setNumber: setNumber++,
+            equipment: e.ex.equipment ?? null,
+            setNumber: setNum,
             totalSets,
             repsPrescribed: p.reps,
-            weightPrescribed:
-              benchTm != null ? Math.round((benchTm * p.percentage) / 100 / 5) * 5 : null,
+            weightPrescribed: wp,
             percentage: p.percentage,
-            isAmrap: !!p.isAmrap,
+            isAmrap,
             rirTarget: null,
             sessionLabel: day.displayName,
+            tempo,
+            requiresWeightInput: !(e.ex.name === "Bench Press" && wp != null),
             last,
+            logged: loggedRow
+              ? {
+                  id: loggedRow.id,
+                  repsCompleted: loggedRow.repsCompleted ?? 0,
+                  weightUsed: loggedRow.weightUsed ?? 0,
+                  rir: loggedRow.rir,
+                }
+              : null,
           });
         }
       }
     } else {
       const totalSets = e.se.sets;
       for (let s = 0; s < e.se.sets; s++) {
+        const isAmrap = e.se.isAmrapTopSet && s === e.se.sets - 1;
+        const isMainLift = e.se.liftId != null;
+        const tempo =
+          (day.sessionType === "upper_a" ||
+            day.sessionType === "upper_b" ||
+            day.sessionType === "upper_c") &&
+          e.se.percentageOfTm != null
+            ? getTempoForBenchSet({
+                sessionType: day.sessionType,
+                percentage: e.se.percentageOfTm,
+                isAmrap,
+                isMainLift,
+              })
+            : "controlled";
+        const setNum = s + 1;
+        const loggedRow = loggedMap.get(`${e.se.id}:${setNum}`);
         rows.push({
           kind: e.se.percentageOfTm != null ? "main" : "accessory",
           sessionExerciseId: e.se.id,
           exerciseId: e.ex.id,
           exerciseName: e.ex.name,
-          setNumber: s + 1,
+          equipment: e.ex.equipment ?? null,
+          setNumber: setNum,
           totalSets,
           repsPrescribed: e.se.reps,
           weightPrescribed: e.se.weightPrescribed,
           percentage: e.se.percentageOfTm,
-          isAmrap: e.se.isAmrapTopSet && s === e.se.sets - 1,
+          isAmrap,
           rirTarget: e.se.rirTarget,
           sessionLabel: day.displayName,
+          tempo,
+          requiresWeightInput: !(e.ex.name === "Bench Press" && e.se.weightPrescribed != null),
           last,
+          logged: loggedRow
+            ? {
+                id: loggedRow.id,
+                repsCompleted: loggedRow.repsCompleted ?? 0,
+                weightUsed: loggedRow.weightUsed ?? 0,
+                rir: loggedRow.rir,
+              }
+            : null,
         });
       }
     }
@@ -111,6 +187,7 @@ export default async function ActivePage({
     status: e.se.status,
     swappedFromExerciseId: e.se.swappedFromExerciseId,
     isMainLift: e.se.liftId != null,
+    notes: e.se.notes ?? null,
   }));
   const library = allExercises.map((e) => ({
     id: e.id,
@@ -124,6 +201,9 @@ export default async function ActivePage({
       sessionId={sessionId}
       programDayId={id}
       sessionLabel={day.displayName}
+      sessionType={day.sessionType}
+      sessionStartedAt={sessionStartedAt}
+      initialIdx={initialIdx}
       rows={rows}
       isBenchAmrapDay={isBenchAmrapDay}
       benchTm={benchTm}

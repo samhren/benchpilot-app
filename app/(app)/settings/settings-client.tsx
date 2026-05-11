@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BP, BigButton, Eyebrow, Mono } from "@/components/ui/primitives";
 import { resetProgramAction, setLiftOneRmAction, setUnitsAction } from "@/app/actions";
@@ -85,6 +85,12 @@ export default function SettingsClient({ lifts, currentWeek, units: initialUnits
               );
             })}
           </div>
+        </Row>
+      </Group>
+
+      <Group label="Display">
+        <Row title="Show tempo guidance on bench sets" sub="Pause/touch-and-go chips on the active workout" last>
+          <TempoToggle />
         </Row>
       </Group>
 
@@ -249,6 +255,52 @@ function OneRmRow({
         </button>
       )}
     </div>
+  );
+}
+
+function TempoToggle() {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    try {
+      setOn(localStorage.getItem("bp:showTempo") !== "0");
+    } catch {}
+  }, []);
+  function toggle() {
+    const next = !on;
+    setOn(next);
+    try {
+      localStorage.setItem("bp:showTempo", next ? "1" : "0");
+    } catch {}
+  }
+  return (
+    <button
+      onClick={toggle}
+      data-testid="tempo-toggle"
+      data-on={on ? "1" : "0"}
+      style={{
+        width: 46,
+        height: 28,
+        borderRadius: 999,
+        background: on ? BP.accent : BP.surface2,
+        border: `1px solid ${on ? BP.accent : BP.borderSoft}`,
+        position: "relative",
+        cursor: "pointer",
+        padding: 0,
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 2,
+          left: on ? 20 : 2,
+          width: 22,
+          height: 22,
+          borderRadius: 999,
+          background: "#fff",
+          transition: "left 120ms ease",
+        }}
+      />
+    </button>
   );
 }
 
