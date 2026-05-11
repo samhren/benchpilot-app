@@ -234,6 +234,26 @@ const UpdateSetSchema = z.object({
   rir: z.number().int().min(0).max(10).nullable(),
 });
 
+const SaveSessionSetsSchema = z.object({
+  sessionId: z.string().uuid(),
+  sets: z.array(LogSetSchema.omit({ sessionId: true })),
+});
+
+export async function saveSessionSetsAction(
+  input: z.infer<typeof SaveSessionSetsSchema>,
+) {
+  const { sessionId, sets } = SaveSessionSetsSchema.parse(input);
+  // Replace any prior workout_sets for this session with the buffered ones,
+  // so re-saving (or saving after edits) is idempotent.
+  await db.delete(workoutSets).where(eq(workoutSets.sessionId, sessionId));
+  if (sets.length > 0) {
+    await db
+      .insert(workoutSets)
+      .values(sets.map((s) => ({ ...s, sessionId })));
+  }
+  return { ok: true as const, count: sets.length };
+}
+
 export async function updateSetAction(input: z.infer<typeof UpdateSetSchema>) {
   const data = UpdateSetSchema.parse(input);
   const [row] = await db

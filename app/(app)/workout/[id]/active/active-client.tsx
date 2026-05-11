@@ -8,13 +8,11 @@ import {
   applyAmrapBumpAction,
   completeSessionAction,
   endSessionEarlyAction,
-  logSetAction,
   reorderSessionExercisesAction,
+  saveSessionSetsAction,
   setSessionExerciseNotesAction,
   swapSessionExerciseAction,
-  updateSetAction,
 } from "@/app/actions";
-import { offlineQueue } from "@/lib/offline";
 import {
   ExerciseLibraryPicker,
   type LibraryExercise,
@@ -111,6 +109,12 @@ export default function ActiveWorkout({
   const [now, setNow] = useState(Date.now());
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const setLogStorageKey = `bp:setlog:${sessionId}`;
+  type BufferedSet = { repsCompleted: number; weightUsed: number; rir: number | null };
+  type PendingBump = { liftName: "bench_press"; amrapReps: number; applied: boolean | null };
+  const [setLog, setSetLog] = useState<Record<string, BufferedSet>>({});
+  const [pendingBump, setPendingBump] = useState<PendingBump | null>(null);
+  const [setLogHydrated, setSetLogHydrated] = useState(false);
   const [tempoSheet, setTempoSheet] = useState<Tempo | null>(null);
   const [showTempo, setShowTempo] = useState(true);
   useEffect(() => {
@@ -138,15 +142,16 @@ export default function ActiveWorkout({
     current.tempo !== "controlled";
 
   useEffect(() => {
-    if (current?.logged) {
-      setReps(current.logged.repsCompleted);
-      setRir(current.logged.rir);
+    const logged = current ? getLogged(current) : null;
+    if (logged) {
+      setReps(logged.repsCompleted);
+      setRir(logged.rir);
       setWeightOverride(
-        current.requiresWeightInput
-          ? current.logged.weightUsed
-          : current.weightPrescribed != null && current.logged.weightUsed === current.weightPrescribed
+        current?.requiresWeightInput
+          ? logged.weightUsed
+          : current?.weightPrescribed != null && logged.weightUsed === current.weightPrescribed
             ? null
-            : current.logged.weightUsed,
+            : logged.weightUsed,
       );
     } else {
       setReps(current?.isAmrap ? null : current?.repsPrescribed ?? null);
@@ -156,6 +161,7 @@ export default function ActiveWorkout({
       setWeightOverride(current?.requiresWeightInput ? current?.last?.weight ?? null : null);
     }
     setShowPlates(false);
+    // setLog is in the deps so navigating to a freshly-logged set picks it up.
   }, [
     idx,
     current?.isAmrap,
@@ -163,13 +169,66 @@ export default function ActiveWorkout({
     current?.repsPrescribed,
     current?.requiresWeightInput,
     current?.last?.weight,
-    current?.logged?.id,
+    setLog,
   ]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    // Hydrate the set buffer from localStorage. The server-loaded `logged` on
+    // each row is only used as a fallback (e.g., a previously-saved partial).
+    try {
+      const raw = localStorage.getItem(setLogStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as {
+          setLog?: Record<string, BufferedSet>;
+          pendingBump?: PendingBump | null;
+        };
+        if (parsed.setLog) setSetLog(parsed.setLog);
+        if (parsed.pendingBump) setPendingBump(parsed.pendingBump);
+      }
+    } catch {}
+    setSetLogHydrated(true);
+  }, [setLogStorageKey]);
+
+  useEffect(() => {
+    if (!setLogHydrated) return;
+    try {
+      localStorage.setItem(
+        setLogStorageKey,
+        JSON.stringify({ setLog, pendingBump }),
+      );
+    } catch {}
+  }, [setLog, pendingBump, setLogStorageKey, setLogHydrated]);
+
+  const jumpedAfterHydrationRef = useRef(false);
+  useEffect(() => {
+    if (!setLogHydrated || jumpedAfterHydrationRef.current) return;
+    const firstUnlogged = rows.findIndex(
+      (r) => !setLog[`${r.sessionExerciseId}:${r.setNumber}`] && !r.logged,
+    );
+    jumpedAfterHydrationRef.current = true;
+    if (firstUnlogged >= 0 && firstUnlogged !== idx) setIdx(firstUnlogged);
+  }, [setLog, rows, idx, setLogHydrated]);
+
+  function logKey(row: { sessionExerciseId: string; setNumber: number }) {
+    return `${row.sessionExerciseId}:${row.setNumber}`;
+  }
+  function getLogged(row: SetRow): BufferedSet | null {
+    const fromBuffer = setLog[logKey(row)];
+    if (fromBuffer) return fromBuffer;
+    // Fall back to server-loaded logged data (e.g., partial workout pre-buffer).
+    return row.logged
+      ? {
+          repsCompleted: row.logged.repsCompleted,
+          weightUsed: row.logged.weightUsed,
+          rir: row.logged.rir,
+        }
+      : null;
+  }
 
   useEffect(() => {
     // Restore a rest timer if one was in progress (e.g. tab was evicted).
@@ -269,7 +328,11 @@ export default function ActiveWorkout({
   const weightDisplay = current?.requiresWeightInput
     ? weightOverride
     : weightOverride ?? current?.weightPrescribed ?? null;
-  const showPlateCalc = current?.equipment === "barbell" && weightDisplay != null;
+  const isBarbellRow =
+    current?.equipment === "barbell" ||
+    // Seed library doesn't carry equipment yet, so fall back to "bench is barbell".
+    (current != null && !current.requiresWeightInput && current.exerciseName === "Bench Press");
+  const showPlateCalc = isBarbellRow && weightDisplay != null;
   const plates = useMemo(
     () => (showPlateCalc && weightDisplay ? calcPlates(weightDisplay) : []),
     [showPlateCalc, weightDisplay],
@@ -310,51 +373,22 @@ export default function ActiveWorkout({
       ? weightOverride ?? 0
       : weightOverride ?? current.weightPrescribed ?? 0;
 
-    // Editing a previously-logged set: update in place, don't re-trigger AMRAP bump or advance.
-    if (current.logged) {
-      const r = await updateSetAction({
-        id: current.logged.id,
-        repsCompleted: reps,
-        weightUsed: weight,
-        rir: current.isAmrap ? 0 : rir,
-      }).catch(() => ({ ok: false as const }));
-      if (!r.ok) {
-        toast.error("Update failed");
-        return;
-      }
+    const wasLoggedAlready = !!getLogged(current);
+    const buffered: BufferedSet = {
+      repsCompleted: reps,
+      weightUsed: weight,
+      rir: current.isAmrap ? 0 : rir,
+    };
+    setSetLog((m) => ({ ...m, [logKey(current)]: buffered }));
+    setCompleted((m) => ({ ...m, [idx]: { reps, weight } }));
+
+    // Editing an already-logged set: don't re-trigger AMRAP modal, don't advance.
+    if (wasLoggedAlready) {
       toast.success("Set updated");
-      router.refresh();
       return;
     }
 
-    const payload = {
-      sessionId,
-      sessionExerciseId: current.sessionExerciseId,
-      exerciseId: current.exerciseId,
-      setNumber: current.setNumber,
-      repsPrescribed: current.repsPrescribed,
-      repsCompleted: reps,
-      weightPrescribed: current.weightPrescribed,
-      weightUsed: weight,
-      rir: current.isAmrap ? 0 : rir,
-      isAmrap: current.isAmrap,
-      isWarmup: false,
-    };
-
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      await offlineQueue.enqueue({ kind: "log_set", payload });
-      toast.success("Queued offline");
-    } else {
-      const r = await logSetAction(payload).catch(async () => {
-        await offlineQueue.enqueue({ kind: "log_set", payload });
-        return { ok: true as const, queued: true };
-      });
-      if (!r.ok) toast.error("Failed to log");
-    }
-
-    setCompleted((m) => ({ ...m, [idx]: { reps, weight } }));
-
-    // Bench AMRAP → bump modal
+    // Bench AMRAP → bump modal (intent only; applied at session save)
     if (current.isAmrap && current.exerciseName === "Bench Press" && benchTm != null) {
       const projected = (() => {
         const prev = benchTm;
@@ -389,18 +423,75 @@ export default function ActiveWorkout({
     }
   }
 
-  async function finish() {
-    await completeSessionAction(sessionId);
-    toast.success("Session complete");
+  function buildBufferPayload() {
+    const out: Array<{
+      sessionExerciseId: string;
+      exerciseId: string;
+      setNumber: number;
+      repsPrescribed: number | null;
+      repsCompleted: number;
+      weightPrescribed: number | null;
+      weightUsed: number;
+      rir: number | null;
+      isAmrap: boolean;
+      isWarmup: boolean;
+    }> = [];
+    for (const row of rows) {
+      const b = setLog[logKey(row)];
+      if (!b) continue;
+      out.push({
+        sessionExerciseId: row.sessionExerciseId,
+        exerciseId: row.exerciseId,
+        setNumber: row.setNumber,
+        repsPrescribed: row.repsPrescribed,
+        repsCompleted: b.repsCompleted,
+        weightPrescribed: row.weightPrescribed,
+        weightUsed: b.weightUsed,
+        rir: b.rir,
+        isAmrap: row.isAmrap,
+        isWarmup: false,
+      });
+    }
+    return out;
+  }
+
+  async function persistAndComplete(kind: "complete" | "early") {
+    const sets = buildBufferPayload();
+    if (kind === "complete" && sets.length === 0) {
+      toast.error("No sets logged yet");
+      return;
+    }
+    const save = await saveSessionSetsAction({ sessionId, sets }).catch(() => ({
+      ok: false as const,
+    }));
+    if (!save.ok) {
+      toast.error("Save failed — try again");
+      return;
+    }
+    if (pendingBump?.applied) {
+      await applyAmrapBumpAction({
+        liftName: pendingBump.liftName,
+        amrapReps: pendingBump.amrapReps,
+      }).catch(() => null);
+    }
+    if (kind === "complete") {
+      await completeSessionAction(sessionId);
+      toast.success("Session saved");
+    } else {
+      await endSessionEarlyAction(sessionId);
+      toast.success("Saved partial workout");
+    }
+    try { localStorage.removeItem(setLogStorageKey); } catch {}
     router.push("/");
     router.refresh();
   }
 
+  async function finish() {
+    await persistAndComplete("complete");
+  }
+
   async function endEarly() {
-    await endSessionEarlyAction(sessionId);
-    toast.success("Saved partial workout");
-    router.push("/");
-    router.refresh();
+    await persistAndComplete("early");
   }
 
   return (
@@ -438,7 +529,7 @@ export default function ActiveWorkout({
             </div>
             <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
               {current.isAmrap ? <Pill>AMRAP</Pill> : null}
-              {current.logged ? (
+              {getLogged(current) ? (
                 <Pill bg={BP.surface2} color={BP.textMuted}>
                   Logged
                 </Pill>
@@ -672,7 +763,7 @@ export default function ActiveWorkout({
             </svg>
           }
         >
-          {current.logged
+          {getLogged(current)
             ? "Update set"
             : current.isAmrap
               ? "Log AMRAP set"
@@ -700,7 +791,7 @@ export default function ActiveWorkout({
           </button>
           <button
             onClick={() => {
-              if (current.logged) {
+              if (getLogged(current)) {
                 setIdx((i) => Math.min(rows.length - 1, i + 1));
                 return;
               }
@@ -720,7 +811,7 @@ export default function ActiveWorkout({
               fontWeight: 600,
             }}
           >
-            {current.logged ? "Next →" : "Skip this set"}
+            {getLogged(current) ? "Next →" : "Skip this set"}
           </button>
         </div>
       </div>
@@ -778,20 +869,27 @@ export default function ActiveWorkout({
           newTm={bumpData.newTm}
           bump={bumpData.bump}
           reason={bumpData.reason}
-          onApply={async () => {
-            const r = await applyAmrapBumpAction({
+          onApply={() => {
+            // Don't write to the DB yet — record intent for the session save.
+            setPendingBump({
               liftName: "bench_press",
               amrapReps: bumpData.amrapReps,
+              applied: bumpData.bump > 0,
             });
-            if (r.ok) {
-              toast.success(r.applied ? `Bench TM → ${bumpData.newTm} lb` : "TM held");
-              setBumpData(null);
-              advanceAfterLog();
-            } else {
-              toast.error("Failed");
-            }
+            toast.success(
+              bumpData.bump > 0
+                ? `Bench TM → ${bumpData.newTm} lb on save`
+                : "TM held",
+            );
+            setBumpData(null);
+            advanceAfterLog();
           }}
           onHold={() => {
+            setPendingBump({
+              liftName: "bench_press",
+              amrapReps: bumpData.amrapReps,
+              applied: false,
+            });
             setBumpData(null);
             advanceAfterLog();
           }}
@@ -802,6 +900,13 @@ export default function ActiveWorkout({
         <PlanSheet
           sessionId={sessionId}
           entries={sessionExercises}
+          rows={rows}
+          getLogged={getLogged}
+          onJumpToSet={(targetIdx) => {
+            setIdx(targetIdx);
+            setShowPlan(false);
+            clearRest();
+          }}
           onClose={() => setShowPlan(false)}
           onSwap={(entry) => setSwapTarget(entry)}
         />
@@ -1473,11 +1578,17 @@ function FullTimerOverlay({
 function PlanSheet({
   sessionId,
   entries,
+  rows,
+  getLogged,
+  onJumpToSet,
   onClose,
   onSwap,
 }: {
   sessionId: string;
   entries: SessionExerciseEntry[];
+  rows: SetRow[];
+  getLogged: (row: SetRow) => { repsCompleted: number; weightUsed: number; rir: number | null } | null;
+  onJumpToSet: (idx: number) => void;
   onClose: () => void;
   onSwap: (entry: SessionExerciseEntry) => void;
 }) {
@@ -1554,7 +1665,14 @@ function PlanSheet({
         </div>
         <div className="overflow-y-auto" style={{ flex: 1 }}>
           <div className="flex flex-col gap-2">
-            {sorted.map((e, i) => (
+            {sorted.map((e, i) => {
+              // All rows for this exercise, kept in their original idx order so
+              // we can jump back to the matching set in the active workout.
+              const exerciseRows = rows
+                .map((r, ridx) => ({ r, ridx }))
+                .filter((x) => x.r.sessionExerciseId === e.id)
+                .sort((a, b) => a.r.setNumber - b.r.setNumber);
+              return (
               <div
                 key={e.id}
                 data-testid={`plan-row-${e.id}`}
@@ -1564,11 +1682,12 @@ function PlanSheet({
                   borderRadius: 12,
                   padding: "12px 12px",
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: "column",
                   gap: 10,
                   opacity: e.status === "completed" ? 0.6 : 1,
                 }}
               >
+                <div className="flex items-center gap-2.5">
                 <Mono
                   style={{
                     width: 22,
@@ -1649,8 +1768,48 @@ function PlanSheet({
                 >
                   Swap
                 </button>
+                </div>
+                {exerciseRows.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {exerciseRows.map(({ r, ridx }) => {
+                      const logged = getLogged(r);
+                      return (
+                        <button
+                          key={`${r.sessionExerciseId}:${r.setNumber}`}
+                          data-testid={`plan-set-${r.sessionExerciseId}-${r.setNumber}`}
+                          onClick={() => onJumpToSet(ridx)}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            height: 30,
+                            padding: "0 10px",
+                            borderRadius: 8,
+                            border: `1px solid ${logged ? "rgba(43,208,95,0.45)" : BP.borderSoft}`,
+                            background: logged ? "rgba(43,208,95,0.10)" : BP.surface2,
+                            color: logged ? BP.text : BP.textMuted,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          <span style={{ color: BP.textDim, fontSize: 11 }}>#{r.setNumber}</span>
+                          {logged ? (
+                            <Mono style={{ fontSize: 12, fontWeight: 700 }}>
+                              {logged.weightUsed}×{logged.repsCompleted}
+                            </Mono>
+                          ) : (
+                            <Mono style={{ fontSize: 12, color: BP.textDim }}>—</Mono>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
