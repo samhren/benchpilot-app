@@ -1094,6 +1094,10 @@ function WeightInput({
         border: `1px solid ${BP.borderSoft}`,
         borderRadius: 14,
         padding: 6,
+        width: "100%",
+        boxSizing: "border-box",
+        minWidth: 0,
+        overflow: "hidden",
       }}
     >
       <button
@@ -1101,7 +1105,7 @@ function WeightInput({
         data-testid="weight-minus"
         aria-label="-5 lb"
         style={{
-          width: 56,
+          flex: "0 0 56px",
           height: 52,
           borderRadius: 10,
           background: BP.surface2,
@@ -1121,9 +1125,11 @@ function WeightInput({
         onChange={(e) => commit(e.target.value)}
         placeholder={placeholder ?? "0"}
         data-testid="weight-input"
-        className="font-mono"
+        className="font-mono no-spinner"
         style={{
-          flex: 1,
+          flex: "1 1 0",
+          width: "100%",
+          minWidth: 0,
           height: 52,
           margin: "0 8px",
           padding: "0 8px",
@@ -1135,6 +1141,9 @@ function WeightInput({
           color: BP.text,
           outline: "none",
           letterSpacing: "-0.02em",
+          boxSizing: "border-box",
+          appearance: "textfield",
+          MozAppearance: "textfield",
         }}
       />
       <button
@@ -1142,7 +1151,7 @@ function WeightInput({
         data-testid="weight-plus"
         aria-label="+5 lb"
         style={{
-          width: 56,
+          flex: "0 0 56px",
           height: 52,
           borderRadius: 10,
           background: BP.surface2,
