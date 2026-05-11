@@ -421,19 +421,52 @@ export default function ActiveWorkout({
         </div>
       ) : null}
 
-      <div className="px-5 flex items-center justify-between mb-5">
-        <div className="flex items-center gap-2">
-          {current.isAmrap ? <Pill>AMRAP</Pill> : null}
-          {current.logged ? (
-            <Pill bg={BP.surface2} color={BP.textMuted}>
-              Logged
-            </Pill>
-          ) : null}
-          <span className="text-[13px]" style={{ color: BP.textMuted }}>
-            {current.exerciseName} · Set {current.setNumber} of {current.totalSets}
-          </span>
+      <div className="px-5 mb-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div
+              data-testid="current-exercise-name"
+              style={{
+                fontSize: 26,
+                fontWeight: 800,
+                letterSpacing: "-0.025em",
+                color: BP.text,
+                lineHeight: 1.1,
+              }}
+            >
+              {current.exerciseName}
+            </div>
+            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+              {current.isAmrap ? <Pill>AMRAP</Pill> : null}
+              {current.logged ? (
+                <Pill bg={BP.surface2} color={BP.textMuted}>
+                  Logged
+                </Pill>
+              ) : null}
+              <Mono
+                data-testid="set-rep-summary"
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: BP.text,
+                  background: BP.surface,
+                  border: `1px solid ${BP.borderSoft}`,
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                }}
+              >
+                {current.totalSets} × {current.repsPrescribed}
+              </Mono>
+              <span className="text-[12px]" style={{ color: BP.textMuted }}>
+                Set {current.setNumber} of {current.totalSets}
+                {current.rirTarget != null ? <> · RIR {current.rirTarget}</> : null}
+              </span>
+            </div>
+          </div>
+          <div className="pt-1">
+            <StepDots total={totalInGroup} done={doneInGroup} />
+          </div>
         </div>
-        <StepDots total={totalInGroup} done={doneInGroup} />
       </div>
 
       <div className="px-5 text-center">
@@ -470,16 +503,11 @@ export default function ActiveWorkout({
             <Mono style={{ fontSize: 26, fontWeight: 600, color: BP.textDim, marginBottom: 12 }}>lb</Mono>
           </div>
         )}
-        <div className="mt-2.5 text-sm" style={{ color: BP.textMuted }}>
-          {current.isAmrap ? (
-            <>Top set · 1 × max reps</>
-          ) : (
-            <>
-              Prescribed: <Mono style={{ color: BP.text, fontWeight: 600 }}>{current.repsPrescribed} reps</Mono>
-              {current.rirTarget != null ? <> · RIR {current.rirTarget}</> : null}
-            </>
-          )}
-        </div>
+        {current.isAmrap ? (
+          <div className="mt-2.5 text-sm" style={{ color: BP.textMuted }}>
+            Top set · 1 × max reps
+          </div>
+        ) : null}
         {current.last ? (
           <div className="mt-2 text-[13px]" style={{ color: BP.textMuted }} data-testid="last-time">
             Last: <Mono style={{ color: BP.text, fontWeight: 600 }}>{current.last.reps} reps</Mono> @{" "}
