@@ -139,7 +139,18 @@ export default async function PreviewPage({ params }: { params: Promise<Params> 
                       {e.ex.muscleGroup}
                     </div>
                     <Mono style={{ fontSize: 12, color: BP.textMuted }}>
-                      {e.pe.isAmrapTopSet ? "AMRAP" : `${e.pe.sets} × ${e.pe.reps}`}
+                      {(() => {
+                        if (e.pe.isAmrapTopSet) return "AMRAP";
+                        const plan = Array.isArray(e.pe.wavePlan)
+                          ? (e.pe.wavePlan as Array<{ sets: number; reps: number }>)
+                          : null;
+                        if (plan && plan.length > 0) {
+                          const totalSets = plan.reduce((a, s) => a + s.sets, 0);
+                          const reps = plan.every((s) => s.reps === plan[0].reps) ? `${plan[0].reps}` : "varies";
+                          return `${totalSets} × ${reps}`;
+                        }
+                        return `${e.pe.sets} × ${e.pe.reps}`;
+                      })()}
                     </Mono>
                   </div>
                   {lastSet ? (
