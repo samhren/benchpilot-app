@@ -75,9 +75,10 @@ export default function ActiveWorkout({
   const [reps, setReps] = useState<number | null>(null);
   const [rir, setRir] = useState<number | null>(2);
   const [weightOverride, setWeightOverride] = useState<number | null>(null);
-  const [restRemaining, setRestRemaining] = useState<number>(0);
+  const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
   const [restTotal, setRestTotal] = useState<number>(0);
-  const [restRunning, setRestRunning] = useState(false);
+  const beepedForRef = useRef<number | null>(null);
+  const restStorageKey = `bp:rest:${sessionId}`;
   const [showFullTimer, setShowFullTimer] = useState(false);
   const [showPlates, setShowPlates] = useState(false);
   const [bumpData, setBumpData] = useState<{ amrapReps: number; oldTm: number; newTm: number; bump: number; reason: string } | null>(null);
@@ -102,19 +103,55 @@ export default function ActiveWorkout({
   }, []);
 
   useEffect(() => {
-    if (!restRunning) return;
-    const t = setInterval(() => {
-      setRestRemaining((r) => {
-        if (r <= 1) {
-          setRestRunning(false);
-          beep();
-          return 0;
-        }
-        return r - 1;
+    // Restore a rest timer if one was in progress (e.g. tab was evicted).
+    try {
+      const raw = localStorage.getItem(restStorageKey);
+      if (!raw) return;
+      const { endsAt, total } = JSON.parse(raw) as { endsAt: number; total: number };
+      if (typeof endsAt !== "number" || endsAt <= Date.now()) {
+        localStorage.removeItem(restStorageKey);
+        return;
+      }
+      setRestEndsAt(endsAt);
+      setRestTotal(total);
+    } catch {}
+  }, [restStorageKey]);
+
+  const restRunning = restEndsAt !== null && restEndsAt > now;
+  const restRemaining = restEndsAt ? Math.max(0, Math.ceil((restEndsAt - now) / 1000)) : 0;
+
+  useEffect(() => {
+    if (restEndsAt === null) return;
+    if (now >= restEndsAt && beepedForRef.current !== restEndsAt) {
+      beepedForRef.current = restEndsAt;
+      beep();
+      try { localStorage.removeItem(restStorageKey); } catch {}
+      setRestEndsAt(null);
+    }
+  }, [now, restEndsAt, restStorageKey]);
+
+  function startRest(sec: number) {
+    const endsAt = Date.now() + sec * 1000;
+    setRestTotal(sec);
+    setRestEndsAt(endsAt);
+    try { localStorage.setItem(restStorageKey, JSON.stringify({ endsAt, total: sec })); } catch {}
+  }
+  function addRest(sec: number) {
+    setRestEndsAt((e) => {
+      if (e === null) return e;
+      const ne = e + sec * 1000;
+      setRestTotal((t) => {
+        const nt = t + sec;
+        try { localStorage.setItem(restStorageKey, JSON.stringify({ endsAt: ne, total: nt })); } catch {}
+        return nt;
       });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [restRunning]);
+      return ne;
+    });
+  }
+  function clearRest() {
+    setRestEndsAt(null);
+    try { localStorage.removeItem(restStorageKey); } catch {}
+  }
 
   useEffect(() => {
     // Acquire wake lock during workout
@@ -248,9 +285,7 @@ export default function ActiveWorkout({
     if (nextRow) {
       const sec =
         nextRow.kind === "main" || (current && current.kind === "main") ? restMainSec : restAccessorySec;
-      setRestTotal(sec);
-      setRestRemaining(sec);
-      setRestRunning(true);
+      startRest(sec);
       setIdx(idx + 1);
     } else {
       finish();
@@ -445,10 +480,7 @@ export default function ActiveWorkout({
         <RestBanner
           remaining={restRemaining}
           total={restTotal}
-          onSkip={() => {
-            setRestRunning(false);
-            setRestRemaining(0);
-          }}
+          onSkip={clearRest}
           onTap={() => setShowFullTimer(true)}
         />
       ) : null}
@@ -458,13 +490,9 @@ export default function ActiveWorkout({
           total={restTotal}
           nextRow={rows[idx]}
           onClose={() => setShowFullTimer(false)}
-          onAdd30={() => {
-            setRestRemaining((r) => r + 30);
-            setRestTotal((t) => t + 30);
-          }}
+          onAdd30={() => addRest(30)}
           onSkip={() => {
-            setRestRunning(false);
-            setRestRemaining(0);
+            clearRest();
             setShowFullTimer(false);
           }}
         />
