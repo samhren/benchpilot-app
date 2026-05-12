@@ -6,6 +6,7 @@ import {
   getActiveProgram,
   getAllLifts,
   getBodyWeightsSinceDays,
+  getInProgressSession,
   getLastCompletedSessionAt,
   getMissedDays,
   getNextScheduledDay,
@@ -38,6 +39,7 @@ export default async function Dashboard() {
   const dow = dayOfWeekInTz(today, tz);
 
   const next = await getNextScheduledDay(program.id);
+  const inProgress = await getInProgressSession();
   const missed = await getMissedDays(program.id, today, tz);
   const lastCompletedAt = await getLastCompletedSessionAt();
   const showLongGap = shouldSuggestLongGapDeload(lastCompletedAt, today);
@@ -169,23 +171,50 @@ export default async function Dashboard() {
           ) : null}
 
           <div className="mt-5">
-            {next ? (
-              <Link href={`/workout/${next.id}`} data-testid="start-workout">
-                <BigButton
-                  kind="primary"
-                  height={64}
-                  icon={
-                    <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
-                      <path d="M3 2l11 6-11 6V2z" fill="#fff" />
-                    </svg>
-                  }
-                >
-                  Start workout
-                </BigButton>
-              </Link>
-            ) : (
-              <BigButton kind="dark">Rest day</BigButton>
-            )}
+            {(() => {
+              const resumeHref = inProgress
+                ? inProgress.isExtra
+                  ? `/workout/extra/${inProgress.sessionId}/active`
+                  : inProgress.programDayId
+                    ? `/workout/${inProgress.programDayId}/active`
+                    : null
+                : null;
+              if (resumeHref) {
+                return (
+                  <Link href={resumeHref} data-testid="resume-workout">
+                    <BigButton
+                      kind="primary"
+                      height={64}
+                      icon={
+                        <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+                          <path d="M3 2l11 6-11 6V2z" fill="#fff" />
+                        </svg>
+                      }
+                    >
+                      Resume workout
+                    </BigButton>
+                  </Link>
+                );
+              }
+              if (next) {
+                return (
+                  <Link href={`/workout/${next.id}`} data-testid="start-workout">
+                    <BigButton
+                      kind="primary"
+                      height={64}
+                      icon={
+                        <svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+                          <path d="M3 2l11 6-11 6V2z" fill="#fff" />
+                        </svg>
+                      }
+                    >
+                      Start workout
+                    </BigButton>
+                  </Link>
+                );
+              }
+              return <BigButton kind="dark">Rest day</BigButton>;
+            })()}
           </div>
         </div>
       </div>

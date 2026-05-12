@@ -283,6 +283,13 @@ export async function completeSessionAction(sessionId: string) {
   return { ok: true as const };
 }
 
+export async function discardSessionAction(sessionId: string) {
+  // Hard delete — FK cascades drop workout_sets and session_exercises rows.
+  await db.delete(workoutSessions).where(eq(workoutSessions.id, sessionId));
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
 export async function endSessionEarlyAction(sessionId: string) {
   await db
     .update(workoutSessions)

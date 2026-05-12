@@ -7,6 +7,7 @@ import { BP, BigButton, Eyebrow, Mono, Pill, StepDots, calcPlates, platesSummary
 import {
   applyAmrapBumpAction,
   completeSessionAction,
+  discardSessionAction,
   endSessionEarlyAction,
   reorderSessionExercisesAction,
   saveSessionSetsAction,
@@ -107,8 +108,10 @@ export default function ActiveWorkout({
   const [showPlates, setShowPlates] = useState(false);
   const [bumpData, setBumpData] = useState<{ amrapReps: number; oldTm: number; newTm: number; bump: number; reason: string } | null>(null);
   const [completed, setCompleted] = useState<Record<number, { reps: number; weight: number }>>({});
-  const [startedAt] = useState(() => sessionStartedAt);
+  const firstSetStorageKey = `bp:firstset:${sessionId}`;
+  const [firstSetAt, setFirstSetAt] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [showReview, setShowReview] = useState(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const setLogStorageKey = `bp:setlog:${sessionId}`;
@@ -193,8 +196,24 @@ export default function ActiveWorkout({
         if (parsed.pendingBump) setPendingBump(parsed.pendingBump);
       }
     } catch {}
+    try {
+      const raw = localStorage.getItem(firstSetStorageKey);
+      if (raw) {
+        const t = parseInt(raw, 10);
+        if (Number.isFinite(t)) setFirstSetAt(t);
+      } else {
+        // Fallback: if rows already carry server-persisted logged sets but we
+        // have no local first-set timestamp (e.g., page reload on a different
+        // device), anchor to the session's started-at so the timer isn't 0:00.
+        const hasPriorLogged = rows.some((r) => r.logged != null);
+        if (hasPriorLogged) {
+          setFirstSetAt(sessionStartedAt);
+          try { localStorage.setItem(firstSetStorageKey, String(sessionStartedAt)); } catch {}
+        }
+      }
+    } catch {}
     setSetLogHydrated(true);
-  }, [setLogStorageKey]);
+  }, [setLogStorageKey, firstSetStorageKey, rows, sessionStartedAt]);
 
   useEffect(() => {
     if (!setLogHydrated) return;
@@ -323,9 +342,13 @@ export default function ActiveWorkout({
     } catch {}
   }
 
-  const elapsedMin = Math.floor((now - startedAt) / 60000);
-  const elapsedSec = Math.floor(((now - startedAt) % 60000) / 1000);
-  const elapsedDisplay = `${elapsedMin}:${String(elapsedSec).padStart(2, "0")}`;
+  const elapsedDisplay = (() => {
+    if (firstSetAt == null) return "0:00";
+    const dt = Math.max(0, now - firstSetAt);
+    const m = Math.floor(dt / 60000);
+    const s = Math.floor((dt % 60000) / 1000);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  })();
 
   const weightDisplay = current?.requiresWeightInput
     ? weightOverride
@@ -383,6 +406,11 @@ export default function ActiveWorkout({
     };
     setSetLog((m) => ({ ...m, [logKey(current)]: buffered }));
     setCompleted((m) => ({ ...m, [idx]: { reps, weight } }));
+    if (firstSetAt == null && !wasLoggedAlready) {
+      const t = Date.now();
+      setFirstSetAt(t);
+      try { localStorage.setItem(firstSetStorageKey, String(t)); } catch {}
+    }
 
     // Editing an already-logged set: don't re-trigger AMRAP modal, don't advance.
     if (wasLoggedAlready) {
@@ -421,7 +449,11 @@ export default function ActiveWorkout({
       startRest(Math.max(currentSec, nextSec));
       setIdx(idx + 1);
     } else {
-      finish();
+      // Last set logged — surface review screen instead of auto-submitting.
+      // Also stop any rest timer; the workout is functionally done.
+      setRestEndsAt(null);
+      try { localStorage.removeItem(restStorageKey); } catch {}
+      setShowReview(true);
     }
   }
 
@@ -484,6 +516,7 @@ export default function ActiveWorkout({
       toast.success("Saved partial workout");
     }
     try { localStorage.removeItem(setLogStorageKey); } catch {}
+    try { localStorage.removeItem(firstSetStorageKey); } catch {}
     router.push("/");
     router.refresh();
   }
@@ -494,6 +527,20 @@ export default function ActiveWorkout({
 
   async function endEarly() {
     await persistAndComplete("early");
+  }
+
+  async function discard() {
+    try { localStorage.removeItem(setLogStorageKey); } catch {}
+    try { localStorage.removeItem(restStorageKey); } catch {}
+    try { localStorage.removeItem(firstSetStorageKey); } catch {}
+    const r = await discardSessionAction(sessionId).catch(() => ({ ok: false as const }));
+    if (!r.ok) {
+      toast.error("Discard failed");
+      return;
+    }
+    toast.success("Workout discarded");
+    router.push("/");
+    router.refresh();
   }
 
   return (
@@ -914,6 +961,25 @@ export default function ActiveWorkout({
         />
       ) : null}
 
+      {showReview ? (
+        <ReviewSheet
+          sessionLabel={sessionLabel}
+          elapsed={elapsedDisplay}
+          entries={sessionExercises}
+          rows={rows}
+          getLogged={getLogged}
+          onEditSet={(targetIdx) => {
+            setIdx(targetIdx);
+            setShowReview(false);
+            clearRest();
+          }}
+          onClose={() => setShowReview(false)}
+          onSubmit={async () => {
+            await finish();
+          }}
+        />
+      ) : null}
+
       {swapTarget ? (
         <ExerciseLibraryPicker
           exercises={library}
@@ -947,13 +1013,14 @@ export default function ActiveWorkout({
           kind="ghost"
           height={48}
           style={{ flex: 1 }}
-          onClick={async () => {
-            if (!confirm("Finish workout now?")) return;
-            await finish();
+          onClick={() => {
+            setRestEndsAt(null);
+            try { localStorage.removeItem(restStorageKey); } catch {}
+            setShowReview(true);
           }}
           data-testid="finish-workout"
         >
-          Finish workout
+          Review & submit
         </BigButton>
         <BigButton
           kind="ghost"
@@ -967,6 +1034,34 @@ export default function ActiveWorkout({
         >
           End early
         </BigButton>
+      </div>
+      <div className="px-5 pt-2 mt-2">
+        <button
+          onClick={async () => {
+            if (
+              !confirm(
+                "Discard this workout? All logged sets will be permanently deleted. This cannot be undone.",
+              )
+            )
+              return;
+            await discard();
+          }}
+          data-testid="discard-workout"
+          style={{
+            width: "100%",
+            height: 44,
+            background: "transparent",
+            border: "none",
+            color: BP.textDim,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            textDecoration: "underline",
+            textUnderlineOffset: 4,
+          }}
+        >
+          Discard workout
+        </button>
       </div>
     </main>
   );
@@ -2101,6 +2196,265 @@ function NoteSheet({
           </BigButton>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReviewSheet({
+  sessionLabel,
+  elapsed,
+  entries,
+  rows,
+  getLogged,
+  onEditSet,
+  onClose,
+  onSubmit,
+}: {
+  sessionLabel: string;
+  elapsed: string;
+  entries: SessionExerciseEntry[];
+  rows: SetRow[];
+  getLogged: (
+    row: SetRow,
+  ) => { repsCompleted: number; weightUsed: number; rir: number | null } | null;
+  onEditSet: (idx: number) => void;
+  onClose: () => void;
+  onSubmit: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const sorted = [...entries].sort((a, b) => a.orderIndex - b.orderIndex);
+
+  let loggedCount = 0;
+  let skippedCount = 0;
+  let totalVolume = 0;
+  for (const r of rows) {
+    const l = getLogged(r);
+    if (l) {
+      loggedCount += 1;
+      totalVolume += (l.weightUsed ?? 0) * (l.repsCompleted ?? 0);
+    } else {
+      skippedCount += 1;
+    }
+  }
+
+  return (
+    <div
+      data-testid="review-sheet"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 95,
+        background: BP.bg,
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "14px 18px 10px",
+          borderBottom: `1px solid ${BP.borderSoft}`,
+          background: BP.bg,
+        }}
+      >
+        <button
+          onClick={onClose}
+          data-testid="review-close"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            border: `1px solid ${BP.borderSoft}`,
+            background: BP.surface,
+            color: BP.textMuted,
+            cursor: "pointer",
+            fontSize: 18,
+            lineHeight: 1,
+          }}
+        >
+          ←
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Eyebrow>Review &amp; submit</Eyebrow>
+          <div
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              letterSpacing: "-0.02em",
+              marginTop: 2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {sessionLabel.split("—")[0].trim()}
+          </div>
+        </div>
+        <Mono style={{ fontSize: 13, color: BP.textDim }}>{elapsed}</Mono>
+      </div>
+
+      <div style={{ overflowY: "auto", flex: 1, padding: "14px 16px 140px" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: 8,
+            marginBottom: 14,
+          }}
+        >
+          <SummaryStat label="Logged" value={`${loggedCount}`} sub={`of ${rows.length} sets`} />
+          <SummaryStat label="Skipped" value={`${skippedCount}`} sub="will be marked" />
+          <SummaryStat label="Volume" value={`${Math.round(totalVolume).toLocaleString()}`} sub="lb · vol" />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {sorted.map((e, i) => {
+            const exerciseRows = rows
+              .map((r, ridx) => ({ r, ridx }))
+              .filter((x) => x.r.sessionExerciseId === e.id)
+              .sort((a, b) => a.r.setNumber - b.r.setNumber);
+            const exLogged = exerciseRows.filter((x) => getLogged(x.r) != null).length;
+            const allDone = exLogged === exerciseRows.length && exerciseRows.length > 0;
+            return (
+              <div
+                key={e.id}
+                data-testid={`review-row-${e.id}`}
+                style={{
+                  background: BP.surface,
+                  border: `1px solid ${BP.borderSoft}`,
+                  borderRadius: 12,
+                  padding: "12px 12px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  opacity: exerciseRows.length === 0 ? 0.55 : 1,
+                }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Mono
+                    style={{
+                      width: 22,
+                      color: BP.textDim,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textAlign: "center",
+                    }}
+                  >
+                    {i + 1}
+                  </Mono>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="text-[14px] font-semibold truncate">{e.name}</div>
+                      {e.isMainLift ? <Pill color={BP.textMuted}>main</Pill> : null}
+                      {allDone ? <Pill color={BP.green}>done</Pill> : null}
+                    </div>
+                    <div className="text-[11px]" style={{ color: BP.textDim }}>
+                      {exLogged}/{exerciseRows.length} sets logged
+                    </div>
+                  </div>
+                </div>
+                {exerciseRows.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {exerciseRows.map(({ r, ridx }) => {
+                      const logged = getLogged(r);
+                      return (
+                        <button
+                          key={`${r.sessionExerciseId}:${r.setNumber}`}
+                          data-testid={`review-set-${r.sessionExerciseId}-${r.setNumber}`}
+                          onClick={() => onEditSet(ridx)}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            height: 30,
+                            padding: "0 10px",
+                            borderRadius: 8,
+                            border: `1px solid ${logged ? "rgba(43,208,95,0.45)" : BP.borderSoft}`,
+                            background: logged ? "rgba(43,208,95,0.10)" : BP.surface2,
+                            color: logged ? BP.text : BP.textMuted,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          <span style={{ color: BP.textDim, fontSize: 11 }}>#{r.setNumber}</span>
+                          {logged ? (
+                            <Mono style={{ fontSize: 12, fontWeight: 700 }}>
+                              {logged.weightUsed}×{logged.repsCompleted}
+                            </Mono>
+                          ) : (
+                            <Mono style={{ fontSize: 12, color: BP.textDim }}>—</Mono>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: "fixed",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          padding: "12px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)",
+          background: "linear-gradient(to top, #0a0a0a 70%, rgba(10,10,10,0))",
+          borderTop: `0.5px solid ${BP.borderSoft}`,
+        }}
+      >
+        <div className="mx-auto" style={{ maxWidth: 420 }}>
+          <BigButton
+            kind="primary"
+            height={60}
+            disabled={submitting}
+            onClick={async () => {
+              setSubmitting(true);
+              try {
+                await onSubmit();
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            data-testid="submit-session"
+          >
+            {submitting ? "Saving…" : "Submit session"}
+          </BigButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SummaryStat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div
+      style={{
+        background: BP.surface,
+        border: `1px solid ${BP.borderSoft}`,
+        borderRadius: 12,
+        padding: "10px 12px",
+      }}
+    >
+      <Eyebrow>{label}</Eyebrow>
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 700,
+          letterSpacing: "-0.02em",
+          marginTop: 2,
+        }}
+      >
+        {value}
+      </div>
+      <Mono style={{ fontSize: 10, color: BP.textDim }}>{sub}</Mono>
     </div>
   );
 }

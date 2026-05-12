@@ -13,7 +13,7 @@ import {
   workoutSessions,
   workoutSets,
 } from "@/lib/db/schema";
-import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import { isoDate, scheduledDateForDay } from "@/lib/program-state";
 
 export async function getActiveProgram() {
@@ -175,6 +175,30 @@ export async function getSessionExercises(sessionId: string) {
     .innerJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
     .where(eq(sessionExercises.sessionId, sessionId))
     .orderBy(sessionExercises.orderIndex);
+}
+
+export async function getInProgressSession() {
+  const rows = await db
+    .select({ s: workoutSessions, pd: programDays })
+    .from(workoutSessions)
+    .leftJoin(programDays, eq(workoutSessions.programDayId, programDays.id))
+    .where(isNull(workoutSessions.completedAt))
+    .orderBy(desc(workoutSessions.startedAt))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  const [setCountRow] = await db
+    .select({ c: sql<number>`count(*)` })
+    .from(workoutSets)
+    .where(eq(workoutSets.sessionId, row.s.id));
+  return {
+    sessionId: row.s.id,
+    isExtra: row.s.isExtra,
+    programDayId: row.s.programDayId,
+    label: row.pd?.displayName ?? "Extra session",
+    startedAt: (row.s.startedAt as Date).toISOString(),
+    setsLogged: Number(setCountRow?.c ?? 0),
+  };
 }
 
 export async function getLastCompletedSessionAt(): Promise<Date | null> {
