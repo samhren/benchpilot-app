@@ -101,6 +101,7 @@ export default async function ActivePage({
           const loggedRow = loggedMap.get(`${e.se.id}:${setNum}`);
           rows.push({
             kind: "main",
+            isMainLift,
             sessionExerciseId: e.se.id,
             exerciseId: e.ex.id,
             exerciseName: e.ex.name,
@@ -148,6 +149,7 @@ export default async function ActivePage({
         const loggedRow = loggedMap.get(`${e.se.id}:${setNum}`);
         rows.push({
           kind: e.se.percentageOfTm != null ? "main" : "accessory",
+          isMainLift,
           sessionExerciseId: e.se.id,
           exerciseId: e.ex.id,
           exerciseName: e.ex.name,

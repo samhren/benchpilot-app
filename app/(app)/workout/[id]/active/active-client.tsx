@@ -23,9 +23,11 @@ import {
   getSessionTempoSummary,
   type Tempo,
 } from "@/lib/programming/tempo";
+import { restSecondsFor } from "@/lib/programming/rest";
 
 export interface SetRow {
   kind: "main" | "accessory";
+  isMainLift: boolean;
   sessionExerciseId: string;
   exerciseId: string;
   exerciseName: string;
@@ -414,9 +416,9 @@ export default function ActiveWorkout({
   function advanceAfterLog() {
     const nextRow = rows[idx + 1];
     if (nextRow) {
-      const sec =
-        nextRow.kind === "main" || (current && current.kind === "main") ? restMainSec : restAccessorySec;
-      startRest(sec);
+      const currentSec = current ? restSecondsFor(current) : 0;
+      const nextSec = restSecondsFor(nextRow);
+      startRest(Math.max(currentSec, nextSec));
       setIdx(idx + 1);
     } else {
       finish();

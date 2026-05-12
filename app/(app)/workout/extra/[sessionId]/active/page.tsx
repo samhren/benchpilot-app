@@ -50,6 +50,7 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
     for (let s = 0; s < e.se.sets; s++) {
       rows.push({
         kind: "accessory",
+        isMainLift: e.se.liftId != null,
         sessionExerciseId: e.se.id,
         exerciseId: e.ex.id,
         exerciseName: e.ex.name,
