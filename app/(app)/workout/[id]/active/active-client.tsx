@@ -9,6 +9,7 @@ import {
   completeSessionAction,
   discardSessionAction,
   endSessionEarlyAction,
+  stampFirstSetAction,
   reorderSessionExercisesAction,
   saveSessionSetsAction,
   setSessionExerciseNotesAction,
@@ -70,6 +71,7 @@ interface Props {
   sessionLabel: string;
   sessionType: string;
   sessionStartedAt: number;
+  sessionFirstSetAt: number | null;
   initialIdx: number;
   rows: SetRow[];
   isBenchAmrapDay: boolean;
@@ -85,6 +87,7 @@ export default function ActiveWorkout({
   sessionLabel,
   sessionType,
   sessionStartedAt,
+  sessionFirstSetAt,
   initialIdx,
   rows,
   benchTm,
@@ -109,7 +112,7 @@ export default function ActiveWorkout({
   const [bumpData, setBumpData] = useState<{ amrapReps: number; oldTm: number; newTm: number; bump: number; reason: string } | null>(null);
   const [completed, setCompleted] = useState<Record<number, { reps: number; weight: number }>>({});
   const firstSetStorageKey = `bp:firstset:${sessionId}`;
-  const [firstSetAt, setFirstSetAt] = useState<number | null>(null);
+  const [firstSetAt, setFirstSetAt] = useState<number | null>(sessionFirstSetAt);
   const [now, setNow] = useState(Date.now());
   const [showReview, setShowReview] = useState(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -196,24 +199,25 @@ export default function ActiveWorkout({
         if (parsed.pendingBump) setPendingBump(parsed.pendingBump);
       }
     } catch {}
-    try {
-      const raw = localStorage.getItem(firstSetStorageKey);
-      if (raw) {
-        const t = parseInt(raw, 10);
-        if (Number.isFinite(t)) setFirstSetAt(t);
-      } else {
-        // Fallback: if rows already carry server-persisted logged sets but we
-        // have no local first-set timestamp (e.g., page reload on a different
-        // device), anchor to the session's started-at so the timer isn't 0:00.
-        const hasPriorLogged = rows.some((r) => r.logged != null);
-        if (hasPriorLogged) {
-          setFirstSetAt(sessionStartedAt);
-          try { localStorage.setItem(firstSetStorageKey, String(sessionStartedAt)); } catch {}
+    // Server is source of truth. If the server has no first_set_at yet,
+    // fall back to the local cache (used while offline) and then to a
+    // best-effort anchor if there are server-persisted logged sets.
+    if (sessionFirstSetAt == null) {
+      try {
+        const raw = localStorage.getItem(firstSetStorageKey);
+        if (raw) {
+          const t = parseInt(raw, 10);
+          if (Number.isFinite(t)) setFirstSetAt(t);
+        } else {
+          const hasPriorLogged = rows.some((r) => r.logged != null);
+          if (hasPriorLogged) {
+            setFirstSetAt(sessionStartedAt);
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
     setSetLogHydrated(true);
-  }, [setLogStorageKey, firstSetStorageKey, rows, sessionStartedAt]);
+  }, [setLogStorageKey, firstSetStorageKey, rows, sessionStartedAt, sessionFirstSetAt]);
 
   useEffect(() => {
     if (!setLogHydrated) return;
@@ -410,6 +414,8 @@ export default function ActiveWorkout({
       const t = Date.now();
       setFirstSetAt(t);
       try { localStorage.setItem(firstSetStorageKey, String(t)); } catch {}
+      // Fire-and-forget server stamp. Idempotent and authoritative.
+      stampFirstSetAction(sessionId).catch(() => null);
     }
 
     // Editing an already-logged set: don't re-trigger AMRAP modal, don't advance.

@@ -268,6 +268,23 @@ export async function updateSetAction(input: z.infer<typeof UpdateSetSchema>) {
   return { ok: true as const, set: row };
 }
 
+export async function stampFirstSetAction(sessionId: string) {
+  // Idempotent: only writes if first_set_at is still null.
+  const [s] = await db
+    .select({ firstSetAt: workoutSessions.firstSetAt })
+    .from(workoutSessions)
+    .where(eq(workoutSessions.id, sessionId))
+    .limit(1);
+  if (!s) return { ok: false as const };
+  if (s.firstSetAt) return { ok: true as const, firstSetAt: (s.firstSetAt as Date).toISOString() };
+  const now = new Date();
+  await db
+    .update(workoutSessions)
+    .set({ firstSetAt: now })
+    .where(eq(workoutSessions.id, sessionId));
+  return { ok: true as const, firstSetAt: now.toISOString() };
+}
+
 export async function completeSessionAction(sessionId: string) {
   // Mark any still-pending session_exercises as skipped, but only set status=completed on the session.
   await db

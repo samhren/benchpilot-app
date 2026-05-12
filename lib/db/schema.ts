@@ -144,6 +144,7 @@ export const workoutSessions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     programDayId: uuid("program_day_id").references(() => programDays.id),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    firstSetAt: timestamp("first_set_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     bodyWeightLb: real("body_weight_lb"),
     notes: text("notes"),

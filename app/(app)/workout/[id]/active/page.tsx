@@ -47,6 +47,9 @@ export default async function ActivePage({
   const sessionStartedAt = sessionRow?.startedAt
     ? new Date(sessionRow.startedAt).getTime()
     : Date.now();
+  const sessionFirstSetAt = sessionRow?.firstSetAt
+    ? new Date(sessionRow.firstSetAt).getTime()
+    : null;
   const loggedSets = await db
     .select()
     .from(workoutSets)
@@ -205,6 +208,7 @@ export default async function ActivePage({
       sessionLabel={day.displayName}
       sessionType={day.sessionType}
       sessionStartedAt={sessionStartedAt}
+      sessionFirstSetAt={sessionFirstSetAt}
       initialIdx={initialIdx}
       rows={rows}
       isBenchAmrapDay={isBenchAmrapDay}

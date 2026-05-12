@@ -106,6 +106,7 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
       sessionLabel={"Extra — Off-schedule"}
       sessionType={"extra"}
       sessionStartedAt={new Date(sess.startedAt).getTime()}
+      sessionFirstSetAt={sess.firstSetAt ? new Date(sess.firstSetAt).getTime() : null}
       initialIdx={(await db.select({ id: workoutSets.id }).from(workoutSets).where(eq(workoutSets.sessionId, sessionId))).length}
       rows={rows}
       isBenchAmrapDay={false}
