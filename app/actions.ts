@@ -295,8 +295,8 @@ export async function completeSessionAction(sessionId: string) {
     .update(sessionExercises)
     .set({ status: "skipped" })
     .where(and(eq(sessionExercises.sessionId, sessionId), eq(sessionExercises.status, "pending")));
-  revalidatePath("/");
-  revalidatePath("/history");
+  // Layout-level revalidation so the resume banner re-fetches and clears.
+  revalidatePath("/", "layout");
   return { ok: true as const };
 }
 
@@ -316,8 +316,7 @@ export async function endSessionEarlyAction(sessionId: string) {
     .update(sessionExercises)
     .set({ status: "skipped" })
     .where(and(eq(sessionExercises.sessionId, sessionId), eq(sessionExercises.status, "pending")));
-  revalidatePath("/");
-  revalidatePath("/history");
+  revalidatePath("/", "layout");
   return { ok: true as const };
 }
 

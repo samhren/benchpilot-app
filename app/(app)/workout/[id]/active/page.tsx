@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { notFound, redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { workoutSessions, workoutSets } from "@/lib/db/schema";
 import {
@@ -32,6 +32,30 @@ export default async function ActivePage({
   if (day.sessionType === "rest") redirect("/program");
 
   const deloadFactor = sp.deload ? Math.max(0.3, Math.min(1, parseFloat(sp.deload))) : undefined;
+
+  // If this program day already has a completed session and no live in-progress
+  // session, don't auto-create another one. Send the user back to the dashboard
+  // instead — this is the guard that prevents the "phantom resume banner"
+  // race when the URL is reloaded immediately after submit.
+  const [priorCompleted] = await db
+    .select({ id: workoutSessions.id })
+    .from(workoutSessions)
+    .where(
+      and(eq(workoutSessions.programDayId, id), isNotNull(workoutSessions.completedAt)),
+    )
+    .limit(1);
+  if (priorCompleted) {
+    const [stillInFlight] = await db
+      .select({ id: workoutSessions.id })
+      .from(workoutSessions)
+      .where(
+        and(eq(workoutSessions.programDayId, id), isNull(workoutSessions.completedAt)),
+      )
+      .limit(1);
+    if (!stillInFlight) {
+      redirect("/");
+    }
+  }
 
   // Ensure a session exists (snapshots template into session_exercises on first call).
   const startResult = await startSessionAction({ programDayId: id, deloadFactor });

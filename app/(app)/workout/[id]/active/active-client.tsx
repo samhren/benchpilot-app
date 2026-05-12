@@ -523,8 +523,11 @@ export default function ActiveWorkout({
     }
     try { localStorage.removeItem(setLogStorageKey); } catch {}
     try { localStorage.removeItem(firstSetStorageKey); } catch {}
+    // Navigate away first; do NOT call router.refresh() here. Refresh
+    // re-fetches the *current* route, which at this microtask is still
+    // /workout/<id>/active — that re-runs startSessionAction and spawns a
+    // phantom in-progress session 50ms after submit.
     router.push("/");
-    router.refresh();
   }
 
   async function finish() {
