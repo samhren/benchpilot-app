@@ -1,11 +1,33 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { BP, BigButton, Eyebrow, Mono } from "@/components/ui/primitives";
+import { useRouter } from "next/navigation";
+import { BP, BigButton, Eyebrow, Mono, Pill } from "@/components/ui/primitives";
 import { manualSetTmAction } from "@/app/actions";
 import { toast } from "sonner";
 
+type TabId = "bench_press" | "back_squat" | "all";
 type LiftName = "bench_press" | "back_squat";
+
+export interface ExerciseEntry {
+  id: string;
+  name: string;
+  muscleGroup: string;
+}
+
+export interface ExerciseHistory {
+  id: string;
+  name: string;
+  muscleGroup: string;
+  equipment: string | null;
+  totalSets: number;
+  lastTrainedAt: string | null;
+  topSetSeries: Array<{ date: string; weight: number; reps: number }>;
+  repPrs: Array<{
+    reps: number;
+    pr: { weight: number; reps: number; completedAt: string } | null;
+  }>;
+}
 
 export interface LiftSummary {
   name: string;
@@ -34,20 +56,37 @@ export interface LiftSummary {
 interface Props {
   initial: string;
   lifts: LiftSummary[];
+  exerciseEntries: ExerciseEntry[];
+  selectedExercise: ExerciseHistory | null;
+  selectedExerciseId: string | null;
 }
 
-const TABS: Array<{ id: LiftName; label: string }> = [
+const TABS: Array<{ id: TabId; label: string }> = [
   { id: "bench_press", label: "Bench" },
   { id: "back_squat", label: "Squat" },
+  { id: "all", label: "All" },
 ];
 
-export default function LiftsClient({ initial, lifts }: Props) {
-  const [tab, setTab] = useState<LiftName>(
-    TABS.find((t) => t.id === initial)?.id ?? "bench_press",
-  );
+export default function LiftsClient({
+  initial,
+  lifts,
+  exerciseEntries,
+  selectedExercise,
+  selectedExerciseId,
+}: Props) {
+  const router = useRouter();
+  const [tab, setTab] = useState<TabId>(() => {
+    if (selectedExerciseId) return "all";
+    const match = TABS.find((t) => t.id === initial)?.id;
+    return match ?? "bench_press";
+  });
   const [editing, setEditing] = useState(false);
+  const [search, setSearch] = useState("");
 
-  const lift = useMemo(() => lifts.find((l) => l.name === tab), [lifts, tab]);
+  const lift = useMemo(
+    () => (tab === "all" ? undefined : lifts.find((l) => l.name === tab)),
+    [lifts, tab],
+  );
 
   const tmSeries = useMemo(() => {
     if (!lift) return [] as number[];
@@ -92,7 +131,12 @@ export default function LiftsClient({ initial, lifts }: Props) {
           <button
             key={t.id}
             data-testid={`tab-${t.id}`}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              setTab(t.id);
+              if (t.id !== "all" && selectedExerciseId) {
+                router.replace(`/lifts?l=${t.id}`, { scroll: false });
+              }
+            }}
             style={{
               flex: 1,
               height: 38,
@@ -110,6 +154,22 @@ export default function LiftsClient({ initial, lifts }: Props) {
           </button>
         ))}
       </div>
+
+      {tab === "all" ? (
+        selectedExercise ? (
+          <ExerciseDetail
+            ex={selectedExercise}
+            onBack={() => router.replace("/lifts?l=all", { scroll: false })}
+          />
+        ) : (
+          <ExerciseBrowser
+            entries={exerciseEntries}
+            search={search}
+            onSearch={setSearch}
+            onPick={(id) => router.push(`/lifts?ex=${id}`, { scroll: false })}
+          />
+        )
+      ) : null}
 
       {lift ? (
         <>
@@ -629,6 +689,366 @@ function TMChart({ data }: { data: number[] }) {
           strokeWidth={i === pts.length - 1 ? 0 : 1}
         />
       ))}
+    </svg>
+  );
+}
+
+function ExerciseBrowser({
+  entries,
+  search,
+  onSearch,
+  onPick,
+}: {
+  entries: ExerciseEntry[];
+  search: string;
+  onSearch: (v: string) => void;
+  onPick: (id: string) => void;
+}) {
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? entries.filter(
+        (e) =>
+          e.name.toLowerCase().includes(q) || e.muscleGroup.toLowerCase().includes(q),
+      )
+    : entries;
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, ExerciseEntry[]>();
+    for (const e of filtered) {
+      const list = map.get(e.muscleGroup) ?? [];
+      list.push(e);
+      map.set(e.muscleGroup, list);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [filtered]);
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <input
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
+        placeholder="Search exercises…"
+        data-testid="exercise-search"
+        style={{
+          width: "100%",
+          height: 44,
+          padding: "0 14px",
+          background: BP.surface,
+          border: `1px solid ${BP.borderSoft}`,
+          borderRadius: 12,
+          color: BP.text,
+          fontSize: 14,
+          outline: "none",
+          marginBottom: 12,
+        }}
+      />
+      {grouped.length === 0 ? (
+        <div
+          className="text-sm"
+          style={{
+            color: BP.textMuted,
+            padding: 24,
+            textAlign: "center",
+            background: BP.surface,
+            borderRadius: 12,
+            border: `1px solid ${BP.borderSoft}`,
+          }}
+        >
+          No matches.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {grouped.map(([group, items]) => (
+            <div key={group}>
+              <div
+                className="px-1.5 pb-1.5"
+                style={{
+                  fontSize: 11,
+                  color: BP.textDim,
+                  fontWeight: 600,
+                  letterSpacing: 0.6,
+                  textTransform: "uppercase",
+                }}
+              >
+                {group}
+              </div>
+              <div
+                style={{
+                  background: BP.surface,
+                  borderRadius: 14,
+                  border: `1px solid ${BP.borderSoft}`,
+                  overflow: "hidden",
+                }}
+              >
+                {items.map((e, i) => (
+                  <button
+                    key={e.id}
+                    data-testid={`exercise-pick-${e.id}`}
+                    onClick={() => onPick(e.id)}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "12px 14px",
+                      background: "transparent",
+                      border: "none",
+                      borderBottom:
+                        i < items.length - 1 ? `1px solid ${BP.borderSoft}` : "none",
+                      color: BP.text,
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>{e.name}</span>
+                    <span style={{ fontSize: 16, color: BP.textDim }}>›</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExerciseDetail({ ex, onBack }: { ex: ExerciseHistory; onBack: () => void }) {
+  const last = ex.lastTrainedAt ? new Date(ex.lastTrainedAt) : null;
+  const ageDays = last
+    ? Math.max(0, Math.floor((Date.now() - last.getTime()) / 86_400_000))
+    : null;
+  const ageLabel =
+    ageDays == null
+      ? "Never"
+      : ageDays === 0
+        ? "today"
+        : ageDays === 1
+          ? "yesterday"
+          : `${ageDays} days ago`;
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <button
+        onClick={onBack}
+        data-testid="exercise-detail-back"
+        style={{
+          height: 32,
+          padding: "0 10px",
+          background: BP.surface,
+          border: `1px solid ${BP.borderSoft}`,
+          borderRadius: 8,
+          color: BP.textMuted,
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 12,
+        }}
+      >
+        ← All exercises
+      </button>
+      <Eyebrow>{ex.muscleGroup}</Eyebrow>
+      <div
+        style={{
+          fontSize: 24,
+          fontWeight: 700,
+          letterSpacing: "-0.025em",
+          marginTop: 2,
+        }}
+      >
+        {ex.name}
+      </div>
+      <div className="flex items-center gap-3 mt-1" style={{ color: BP.textDim, fontSize: 12 }}>
+        <Mono>{ex.totalSets} working sets</Mono>
+        <span>·</span>
+        <Mono>last {ageLabel}</Mono>
+        {ex.equipment ? (
+          <>
+            <span>·</span>
+            <Pill color={BP.textMuted}>{ex.equipment}</Pill>
+          </>
+        ) : null}
+      </div>
+
+      <div
+        style={{
+          marginTop: 18,
+          padding: "16px 14px 12px",
+          background: BP.surface,
+          borderRadius: 16,
+          border: `1px solid ${BP.borderSoft}`,
+        }}
+      >
+        <div className="flex items-baseline justify-between">
+          <Eyebrow>Top set weight</Eyebrow>
+          <Mono style={{ fontSize: 11, color: BP.textDim }}>
+            {ex.topSetSeries.length} session{ex.topSetSeries.length === 1 ? "" : "s"}
+          </Mono>
+        </div>
+        {ex.topSetSeries.length >= 2 ? (
+          <TopSetChart data={ex.topSetSeries} />
+        ) : ex.topSetSeries.length === 1 ? (
+          <div className="mt-3 text-sm" style={{ color: BP.textMuted }}>
+            One session logged so far. Heaviest:{" "}
+            <Mono style={{ color: BP.text, fontWeight: 700 }}>
+              {ex.topSetSeries[0].weight}×{ex.topSetSeries[0].reps}
+            </Mono>
+          </div>
+        ) : (
+          <div className="mt-3 text-sm" style={{ color: BP.textMuted }}>
+            No history yet.
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <div className="px-0.5 pb-2">
+          <Eyebrow>Rep PRs</Eyebrow>
+        </div>
+        <div
+          style={{
+            background: BP.surface,
+            borderRadius: 16,
+            border: `1px solid ${BP.borderSoft}`,
+            overflow: "hidden",
+          }}
+        >
+          {ex.repPrs.map((row, i) => {
+            const date = row.pr
+              ? new Date(row.pr.completedAt).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })
+              : null;
+            return (
+              <div
+                key={row.reps}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "12px 14px",
+                  gap: 12,
+                  borderBottom:
+                    i < ex.repPrs.length - 1 ? `1px solid ${BP.borderSoft}` : "none",
+                }}
+              >
+                <Mono
+                  style={{
+                    width: 44,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: BP.textDim,
+                  }}
+                >
+                  ≥ {row.reps}
+                </Mono>
+                {row.pr ? (
+                  <>
+                    <Mono
+                      style={{
+                        fontSize: 18,
+                        fontWeight: 800,
+                        letterSpacing: "-0.02em",
+                        color: BP.text,
+                      }}
+                    >
+                      {row.pr.weight}
+                      <span style={{ fontSize: 11, color: BP.textDim, fontWeight: 500 }}>
+                        {" "}
+                        × {row.pr.reps}
+                      </span>
+                    </Mono>
+                    <div style={{ flex: 1 }} />
+                    <Mono style={{ fontSize: 11, color: BP.textDim }}>{date}</Mono>
+                  </>
+                ) : (
+                  <span className="text-[13px]" style={{ color: BP.textDim }}>
+                    —
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopSetChart({
+  data,
+}: {
+  data: Array<{ date: string; weight: number; reps: number }>;
+}) {
+  const w = 295;
+  const h = 130;
+  const weights = data.map((d) => d.weight);
+  const min = Math.min(...weights) - 5;
+  const max = Math.max(...weights) + 5;
+  const range = max - min || 1;
+  const step = w / Math.max(1, data.length - 1);
+  const pts = data.map(
+    (d, i) => [i * step, h - ((d.weight - min) / range) * h] as const,
+  );
+  const path = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
+  const area = `${path} L${w},${h} L0,${h} Z`;
+  return (
+    <svg
+      width="100%"
+      height={h + 28}
+      viewBox={`0 -8 ${w} ${h + 28}`}
+      style={{ marginTop: 10, display: "block" }}
+    >
+      <defs>
+        <linearGradient id="topsetgrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#FF2F2F" stopOpacity="0.32" />
+          <stop offset="1" stopColor="#FF2F2F" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#topsetgrad)" />
+      <path
+        d={path}
+        stroke="#FF2F2F"
+        strokeWidth="2"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {pts.map(([x, y], i) => (
+        <circle
+          key={i}
+          cx={x}
+          cy={y}
+          r={i === pts.length - 1 ? 4 : 2}
+          fill={i === pts.length - 1 ? "#FF2F2F" : "#fff"}
+          stroke="#FF2F2F"
+          strokeWidth={i === pts.length - 1 ? 0 : 1}
+        />
+      ))}
+      <text
+        x={0}
+        y={h + 18}
+        fontSize={10}
+        fill="#666"
+        style={{ fontFamily: "ui-monospace, monospace" }}
+      >
+        {data[0]
+          ? new Date(data[0].date).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            })
+          : ""}
+      </text>
+      <text
+        x={w}
+        y={h + 18}
+        fontSize={10}
+        fill="#aaa"
+        textAnchor="end"
+        style={{ fontFamily: "ui-monospace, monospace" }}
+      >
+        {data[data.length - 1]?.weight} lb × {data[data.length - 1]?.reps}
+      </text>
     </svg>
   );
 }
