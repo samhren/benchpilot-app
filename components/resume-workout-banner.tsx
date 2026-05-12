@@ -18,8 +18,10 @@ interface Props {
 export function ResumeWorkoutBanner({ session }: Props) {
   const pathname = usePathname();
 
-  // Don't show if we're already inside the active workout for this session.
-  if (pathname.startsWith("/workout/") && pathname.endsWith("/active")) return null;
+  // Hide on any /workout/* route — those pages either ARE the workout
+  // (active) or have their own pinned bottom CTA (preview / extra builder)
+  // and the banner would overlap. Mirrors bottom-nav's hide rule.
+  if (pathname.startsWith("/workout/") || pathname === "/workout") return null;
   if (pathname.startsWith("/signin")) return null;
 
   const href = session.isExtra
