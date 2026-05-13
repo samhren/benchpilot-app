@@ -53,7 +53,7 @@ const ACCESSORY = {
   ],
   upper_b: [
     { name: "Chest-Supported T-Bar Row", muscle: "back", sets: 3, reps: 9, rir: 1, notes: null },
-    { name: "Incline DB Bench", muscle: "chest", sets: 2, reps: 11, rir: 1, notes: "~30°" },
+    { name: "Incline DB Press", muscle: "chest", sets: 2, reps: 11, rir: 1, notes: "~30°" },
     { name: "One-Arm Lat Pulldown", muscle: "back", sets: 2, reps: 11, rir: 1, notes: "Kneeling" },
     { name: "Reverse Pec Deck", muscle: "rear-delts", sets: 2, reps: 12, rir: 1, notes: "Rear delt isolation. Reverse DB Fly if no machine." },
     { name: "Cable Lateral Raise", muscle: "side-delts", sets: 3, reps: 12, rir: 1, notes: "Lean-away" },

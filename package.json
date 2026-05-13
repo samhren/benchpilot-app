@@ -16,6 +16,8 @@
     "db:studio:prod": "DRIZZLE_TARGET=prod drizzle-kit studio",
     "db:seed": "tsx lib/db/seed.ts",
     "db:add-exercises": "tsx lib/db/add-exercises.ts",
+    "db:dedupe-incline-db": "tsx lib/db/dedupe-incline-db.ts",
+    "db:dedupe-incline-db:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/dedupe-incline-db.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
