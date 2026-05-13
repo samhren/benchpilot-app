@@ -45,6 +45,10 @@ export interface SetRow {
   equipment: string | null;
   requiresWeightInput: boolean;
   last: { reps: number; weight: number } | null;
+  lastSession: {
+    date: number;
+    sets: Array<{ setNumber: number; reps: number; weight: number }>;
+  } | null;
   logged: {
     id: string;
     repsCompleted: number;
@@ -657,7 +661,9 @@ export default function ActiveWorkout({
             Top set · 1 × max reps
           </div>
         ) : null}
-        {current.last ? (
+        {current.lastSession ? (
+          <LastSessionSets data={current.lastSession} currentSetNumber={current.setNumber} />
+        ) : current.last ? (
           <div className="mt-2 text-[13px]" style={{ color: BP.textMuted }} data-testid="last-time">
             Last: <Mono style={{ color: BP.text, fontWeight: 600 }}>{current.last.reps} reps</Mono> @{" "}
             <Mono>{current.last.weight}</Mono> lb
@@ -1493,6 +1499,78 @@ function fmt(t: number): string {
   const m = Math.floor(t / 60);
   const s = Math.max(0, t % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function relativeDateLabel(ms: number, nowMs: number = Date.now()): string {
+  const diff = Math.max(0, nowMs - ms);
+  const day = 24 * 60 * 60 * 1000;
+  const days = Math.floor(diff / day);
+  if (days <= 0) {
+    const hours = Math.floor(diff / (60 * 60 * 1000));
+    if (hours <= 0) return "just now";
+    return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  }
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? "1 month ago" : `${months} months ago`;
+  const years = Math.floor(days / 365);
+  return years === 1 ? "1 year ago" : `${years} years ago`;
+}
+
+function LastSessionSets({
+  data,
+  currentSetNumber,
+}: {
+  data: { date: number; sets: Array<{ setNumber: number; reps: number; weight: number }> };
+  currentSetNumber: number;
+}) {
+  if (data.sets.length === 0) return null;
+  return (
+    <div
+      className="mt-3"
+      data-testid="last-session"
+      style={{
+        background: BP.surface,
+        border: `1px solid ${BP.borderSoft}`,
+        borderRadius: 12,
+        padding: "10px 12px",
+        textAlign: "left",
+      }}
+    >
+      <div className="flex items-baseline justify-between mb-1.5">
+        <Eyebrow>Last time</Eyebrow>
+        <span style={{ fontSize: 11, color: BP.textDim }}>{relativeDateLabel(data.date)}</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {data.sets.map((s) => {
+          const isCurrent = s.setNumber === currentSetNumber;
+          return (
+            <div
+              key={s.setNumber}
+              data-testid={`last-session-set-${s.setNumber}`}
+              className="flex items-baseline justify-between"
+              style={{
+                fontSize: 13,
+                color: isCurrent ? BP.text : BP.textMuted,
+                fontWeight: isCurrent ? 700 : 500,
+              }}
+            >
+              <span style={{ color: isCurrent ? BP.text : BP.textDim }}>
+                Set {s.setNumber}
+              </span>
+              <span>
+                <Mono style={{ color: "inherit", fontWeight: "inherit" }}>{s.reps}</Mono> reps @{" "}
+                <Mono style={{ color: "inherit", fontWeight: "inherit" }}>{s.weight}</Mono> lb
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function RestBanner({

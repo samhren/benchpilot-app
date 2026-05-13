@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import {
   getAllExercises,
   getAllLifts,
-  getLastSetForExercise,
+  getLastSessionSetsForExercise,
   getSessionExercises,
   getSettings,
 } from "@/lib/queries";
@@ -42,9 +42,18 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
 
   const rows: SetRow[] = [];
   for (const e of exs) {
-    const lastSet = await getLastSetForExercise(e.ex.id);
-    const last = lastSet
-      ? { reps: lastSet.repsCompleted ?? 0, weight: lastSet.weightUsed ?? 0 }
+    const lastSession = await getLastSessionSetsForExercise(e.ex.id, sessionId);
+    const lastSet = lastSession?.sets[lastSession.sets.length - 1] ?? null;
+    const last = lastSet ? { reps: lastSet.reps, weight: lastSet.weight } : null;
+    const lastSessionRow = lastSession
+      ? {
+          date: lastSession.date,
+          sets: lastSession.sets.map((s) => ({
+            setNumber: s.setNumber,
+            reps: s.reps,
+            weight: s.weight,
+          })),
+        }
       : null;
     const totalSets = e.se.sets;
     for (let s = 0; s < e.se.sets; s++) {
@@ -66,6 +75,7 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
         tempo: "controlled",
         requiresWeightInput: true,
         last,
+        lastSession: lastSessionRow,
         logged: (() => {
           const r = loggedMap.get(`${e.se.id}:${s + 1}`);
           return r

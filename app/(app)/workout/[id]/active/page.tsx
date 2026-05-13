@@ -7,7 +7,7 @@ import { workoutSessions, workoutSets } from "@/lib/db/schema";
 import {
   getAllExercises,
   getAllLifts,
-  getLastSetForExercise,
+  getLastSessionSetsForExercise,
   getProgramDay,
   getSessionExercises,
   getSettings,
@@ -93,9 +93,18 @@ export default async function ActivePage({
   // into session_exercises.weightPrescribed (with deloadFactor applied at start).
   const rows: SetRow[] = [];
   for (const e of exs) {
-    const lastSet = await getLastSetForExercise(e.ex.id);
-    const last = lastSet
-      ? { reps: lastSet.repsCompleted ?? 0, weight: lastSet.weightUsed ?? 0 }
+    const lastSession = await getLastSessionSetsForExercise(e.ex.id, sessionId);
+    const lastSet = lastSession?.sets[lastSession.sets.length - 1] ?? null;
+    const last = lastSet ? { reps: lastSet.reps, weight: lastSet.weight } : null;
+    const lastSessionRow = lastSession
+      ? {
+          date: lastSession.date,
+          sets: lastSession.sets.map((s) => ({
+            setNumber: s.setNumber,
+            reps: s.reps,
+            weight: s.weight,
+          })),
+        }
       : null;
 
     if (e.se.wavePlan) {
@@ -144,6 +153,7 @@ export default async function ActivePage({
             tempo,
             requiresWeightInput: !(e.ex.name === "Bench Press" && wp != null),
             last,
+            lastSession: lastSessionRow,
             logged: loggedRow
               ? {
                   id: loggedRow.id,
@@ -192,6 +202,7 @@ export default async function ActivePage({
           tempo,
           requiresWeightInput: !(e.ex.name === "Bench Press" && e.se.weightPrescribed != null),
           last,
+          lastSession: lastSessionRow,
           logged: loggedRow
             ? {
                 id: loggedRow.id,

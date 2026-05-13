@@ -13,7 +13,7 @@ import {
   workoutSessions,
   workoutSets,
 } from "@/lib/db/schema";
-import { and, desc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { isoDate, scheduledDateForDay } from "@/lib/program-state";
 
 export async function getActiveProgram() {
@@ -112,6 +112,69 @@ export async function getLastSetForExercise(exerciseId: string) {
     .orderBy(desc(workoutSets.completedAt))
     .limit(1);
   return row ?? null;
+}
+
+export type LastSessionSets = {
+  sessionId: string;
+  // ms since epoch — best available timestamp for "when this happened"
+  date: number;
+  sets: Array<{
+    setNumber: number;
+    reps: number;
+    weight: number;
+    rir: number | null;
+    isAmrap: boolean;
+  }>;
+};
+
+// Returns every logged set of `exerciseId` from the most recent prior session
+// where it was performed. Excludes the in-progress session if supplied so the
+// user sees actual prior data rather than what they just logged this session.
+export async function getLastSessionSetsForExercise(
+  exerciseId: string,
+  excludeSessionId?: string,
+): Promise<LastSessionSets | null> {
+  const conds = [eq(workoutSets.exerciseId, exerciseId), isNotNull(workoutSets.repsCompleted)];
+  if (excludeSessionId) conds.push(ne(workoutSets.sessionId, excludeSessionId));
+
+  const [mostRecent] = await db
+    .select({ sessionId: workoutSets.sessionId })
+    .from(workoutSets)
+    .where(and(...conds))
+    .orderBy(desc(workoutSets.completedAt))
+    .limit(1);
+  if (!mostRecent) return null;
+
+  const sets = await db
+    .select()
+    .from(workoutSets)
+    .where(
+      and(
+        eq(workoutSets.sessionId, mostRecent.sessionId),
+        eq(workoutSets.exerciseId, exerciseId),
+        isNotNull(workoutSets.repsCompleted),
+      ),
+    )
+    .orderBy(workoutSets.setNumber);
+  if (sets.length === 0) return null;
+
+  const [sess] = await db
+    .select()
+    .from(workoutSessions)
+    .where(eq(workoutSessions.id, mostRecent.sessionId))
+    .limit(1);
+  const dateSource = sess?.completedAt ?? sess?.startedAt ?? sets[sets.length - 1].completedAt;
+  return {
+    sessionId: mostRecent.sessionId,
+    date: new Date(dateSource as unknown as string | Date).getTime(),
+    sets: sets.map((s) => ({
+      setNumber: s.setNumber,
+      reps: s.repsCompleted ?? 0,
+      weight: s.weightUsed ?? 0,
+      rir: s.rir,
+      isAmrap: s.isAmrap,
+    })),
+  };
 }
 
 export async function getCompletedSessionForProgramDay(programDayId: string) {
