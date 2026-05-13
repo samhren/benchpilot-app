@@ -18,6 +18,8 @@
     "db:add-exercises": "tsx lib/db/add-exercises.ts",
     "db:dedupe-incline-db": "tsx lib/db/dedupe-incline-db.ts",
     "db:dedupe-incline-db:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/dedupe-incline-db.ts",
+    "db:apply-upper-b-tweaks": "tsx lib/db/apply-upper-b-tweaks.ts",
+    "db:apply-upper-b-tweaks:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/apply-upper-b-tweaks.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
