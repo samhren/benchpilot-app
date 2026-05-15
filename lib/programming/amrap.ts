@@ -28,3 +28,23 @@ export function applyAmrapBump(currentTm: number, amrapReps: number): AmrapBumpR
     reason: "Aggressive +10 lb (12+ AMRAP reps)",
   };
 }
+
+export interface AmrapTmProjection {
+  repsLabel: string;
+  reps: number;
+  result: AmrapBumpResult;
+}
+
+// What each AMRAP rep bracket would do to the training max, so a lifter can
+// see the outcomes before the set rather than after.
+export function amrapTmProjections(currentTm: number): AmrapTmProjection[] {
+  return [
+    { repsLabel: "≤ 8", reps: 8 },
+    { repsLabel: "9–11", reps: 10 },
+    { repsLabel: "12+", reps: 12 },
+  ].map(({ repsLabel, reps }) => ({
+    repsLabel,
+    reps,
+    result: applyAmrapBump(currentTm, reps),
+  }));
+}

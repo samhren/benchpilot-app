@@ -26,6 +26,7 @@ import {
   type Tempo,
 } from "@/lib/programming/tempo";
 import { restSecondsFor } from "@/lib/programming/rest";
+import { applyAmrapBump, amrapTmProjections } from "@/lib/programming/amrap";
 
 export interface SetRow {
   kind: "main" | "accessory";
@@ -103,6 +104,7 @@ export default function ActiveWorkout({
   const router = useRouter();
   const [idx, setIdx] = useState(() => Math.min(initialIdx, Math.max(0, rows.length - 1)));
   const [showPlan, setShowPlan] = useState(false);
+  const [showLast, setShowLast] = useState(false);
   const [swapTarget, setSwapTarget] = useState<SessionExerciseEntry | null>(null);
   const [reps, setReps] = useState<number | null>(null);
   const [rir, setRir] = useState<number | null>(2);
@@ -430,19 +432,12 @@ export default function ActiveWorkout({
 
     // Bench AMRAP → bump modal (intent only; applied at session save)
     if (current.isAmrap && current.exerciseName === "Bench Press" && benchTm != null) {
-      const projected = (() => {
-        const prev = benchTm;
-        if (reps < 8) return { newTm: prev, bump: 0, reason: "Hold TM (AMRAP under 8 reps)" };
-        if (reps === 8)
-          return { newTm: prev, bump: 0, reason: "Hold TM (AMRAP at 8 — borderline, holding for safety)" };
-        if (reps <= 11) return { newTm: prev + 5, bump: 5, reason: "Standard +5 lb (9–11 AMRAP reps)" };
-        return { newTm: prev + 10, bump: 10, reason: "Aggressive +10 lb (12+ AMRAP reps)" };
-      })();
+      const projected = applyAmrapBump(benchTm, reps);
       setBumpData({
         amrapReps: reps,
         oldTm: benchTm,
         newTm: projected.newTm,
-        bump: projected.bump,
+        bump: projected.bumpAmount,
         reason: projected.reason,
       });
       return; // Modal handles advance
@@ -563,6 +558,7 @@ export default function ActiveWorkout({
         elapsed={elapsedDisplay}
         onClose={() => router.push("/program")}
         onOpenPlan={() => setShowPlan(true)}
+        onOpenLast={current.lastSession || current.last ? () => setShowLast(true) : undefined}
       />
       {showTempo && sessionTempoSummary ? (
         <div
@@ -661,20 +657,17 @@ export default function ActiveWorkout({
             Top set · 1 × max reps
           </div>
         ) : null}
-        {current.lastSession ? (
-          <LastSessionSets data={current.lastSession} currentSetNumber={current.setNumber} />
-        ) : current.last ? (
-          <div className="mt-2 text-[13px]" style={{ color: BP.textMuted }} data-testid="last-time">
-            Last: <Mono style={{ color: BP.text, fontWeight: 600 }}>{current.last.reps} reps</Mono> @{" "}
-            <Mono>{current.last.weight}</Mono> lb
-          </div>
-        ) : null}
         {showTempoChip ? (
           <div className="mt-3 flex justify-center">
             <TempoChip tempo={current.tempo} onTap={() => setTempoSheet(current.tempo)} />
           </div>
         ) : null}
       </div>
+
+      {/* Bench AMRAP → preview what each rep bracket does to TM, before the set */}
+      {current.isAmrap && current.exerciseName === "Bench Press" && benchTm != null ? (
+        <AmrapTmPreview currentTm={benchTm} reps={reps} />
+      ) : null}
 
       {/* Plate calc */}
       {showPlateCalc ? (
@@ -976,6 +969,16 @@ export default function ActiveWorkout({
         />
       ) : null}
 
+      {showLast && (current.lastSession || current.last) ? (
+        <LastSessionModal
+          exerciseName={current.exerciseName}
+          lastSession={current.lastSession}
+          last={current.last}
+          currentSetNumber={current.setNumber}
+          onClose={() => setShowLast(false)}
+        />
+      ) : null}
+
       {showReview ? (
         <ReviewSheet
           sessionLabel={sessionLabel}
@@ -1087,11 +1090,13 @@ function Header({
   elapsed,
   onClose,
   onOpenPlan,
+  onOpenLast,
 }: {
   session: string;
   elapsed: string;
   onClose: () => void;
   onOpenPlan?: () => void;
+  onOpenLast?: () => void;
 }) {
   const [head, ...rest] = session.split("—");
   return (
@@ -1120,6 +1125,25 @@ function Header({
         <Eyebrow>{head.trim()}</Eyebrow>
         <div className="text-sm font-semibold mt-px">{(rest.join("—") || "").trim()}</div>
       </div>
+      {onOpenLast ? (
+        <button
+          onClick={onOpenLast}
+          data-testid="open-last"
+          style={{
+            height: 32,
+            padding: "0 10px",
+            borderRadius: 8,
+            border: `1px solid ${BP.borderSoft}`,
+            background: BP.surface,
+            color: BP.textMuted,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          Last
+        </button>
+      ) : null}
       {onOpenPlan ? (
         <button
           onClick={onOpenPlan}
@@ -1520,54 +1544,149 @@ function relativeDateLabel(ms: number, nowMs: number = Date.now()): string {
   return years === 1 ? "1 year ago" : `${years} years ago`;
 }
 
-function LastSessionSets({
-  data,
+function LastSessionModal({
+  exerciseName,
+  lastSession,
+  last,
   currentSetNumber,
+  onClose,
 }: {
-  data: { date: number; sets: Array<{ setNumber: number; reps: number; weight: number }> };
+  exerciseName: string;
+  lastSession: SetRow["lastSession"];
+  last: SetRow["last"];
   currentSetNumber: number;
+  onClose: () => void;
 }) {
-  if (data.sets.length === 0) return null;
+  const sets = lastSession?.sets ?? [];
   return (
     <div
-      className="mt-3"
-      data-testid="last-session"
+      onClick={onClose}
+      data-testid="last-session-modal"
       style={{
-        background: BP.surface,
-        border: `1px solid ${BP.borderSoft}`,
-        borderRadius: 12,
-        padding: "10px 12px",
-        textAlign: "left",
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.55)",
+        zIndex: 60,
+        display: "flex",
+        alignItems: "flex-end",
       }}
     >
-      <div className="flex items-baseline justify-between mb-1.5">
-        <Eyebrow>Last time</Eyebrow>
-        <span style={{ fontSize: 11, color: BP.textDim }}>{relativeDateLabel(data.date)}</span>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: BP.surface,
+          borderTopLeftRadius: 18,
+          borderTopRightRadius: 18,
+          borderTop: `1px solid ${BP.borderSoft}`,
+          width: "100%",
+          maxWidth: 420,
+          margin: "0 auto",
+          padding: "18px 20px 28px",
+        }}
+      >
+        <div
+          style={{ width: 40, height: 4, borderRadius: 2, background: BP.borderSoft, margin: "0 auto 14px" }}
+        />
+        <div className="flex items-baseline justify-between mb-3">
+          <Eyebrow>Last time · {exerciseName}</Eyebrow>
+          {lastSession ? (
+            <span style={{ fontSize: 11, color: BP.textDim }}>{relativeDateLabel(lastSession.date)}</span>
+          ) : null}
+        </div>
+        {sets.length > 0 ? (
+          <div className="flex flex-col gap-1.5" data-testid="last-session">
+            {sets.map((s) => {
+              const isCurrent = s.setNumber === currentSetNumber;
+              return (
+                <div
+                  key={s.setNumber}
+                  data-testid={`last-session-set-${s.setNumber}`}
+                  className="flex items-baseline justify-between"
+                  style={{
+                    fontSize: 14,
+                    color: isCurrent ? BP.text : BP.textMuted,
+                    fontWeight: isCurrent ? 700 : 500,
+                  }}
+                >
+                  <span style={{ color: isCurrent ? BP.text : BP.textDim }}>Set {s.setNumber}</span>
+                  <span>
+                    <Mono style={{ color: "inherit", fontWeight: "inherit" }}>{s.reps}</Mono> reps @{" "}
+                    <Mono style={{ color: "inherit", fontWeight: "inherit" }}>{s.weight}</Mono> lb
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : last ? (
+          <div style={{ fontSize: 14, color: BP.textMuted }} data-testid="last-time">
+            <Mono style={{ color: BP.text, fontWeight: 700 }}>{last.reps}</Mono> reps @{" "}
+            <Mono style={{ color: BP.text, fontWeight: 700 }}>{last.weight}</Mono> lb
+          </div>
+        ) : (
+          <div style={{ fontSize: 14, color: BP.textMuted }}>No previous data for this exercise.</div>
+        )}
+        <BigButton kind="dark" height={48} onClick={onClose} style={{ marginTop: 18 }}>
+          Got it
+        </BigButton>
       </div>
-      <div className="flex flex-col gap-1">
-        {data.sets.map((s) => {
-          const isCurrent = s.setNumber === currentSetNumber;
-          return (
-            <div
-              key={s.setNumber}
-              data-testid={`last-session-set-${s.setNumber}`}
-              className="flex items-baseline justify-between"
-              style={{
-                fontSize: 13,
-                color: isCurrent ? BP.text : BP.textMuted,
-                fontWeight: isCurrent ? 700 : 500,
-              }}
-            >
-              <span style={{ color: isCurrent ? BP.text : BP.textDim }}>
-                Set {s.setNumber}
-              </span>
-              <span>
-                <Mono style={{ color: "inherit", fontWeight: "inherit" }}>{s.reps}</Mono> reps @{" "}
-                <Mono style={{ color: "inherit", fontWeight: "inherit" }}>{s.weight}</Mono> lb
-              </span>
-            </div>
-          );
-        })}
+    </div>
+  );
+}
+
+function AmrapTmPreview({ currentTm, reps }: { currentTm: number; reps: number | null }) {
+  const projections = amrapTmProjections(currentTm);
+  const activeBump =
+    reps != null && Number.isFinite(reps) ? applyAmrapBump(currentTm, reps).bumpAmount : null;
+  return (
+    <div className="px-5 pt-5">
+      <div
+        data-testid="amrap-tm-preview"
+        style={{
+          background: BP.surface,
+          border: `1px solid ${BP.borderSoft}`,
+          borderRadius: 12,
+          padding: "10px 12px",
+        }}
+      >
+        <div className="flex items-baseline justify-between mb-1.5">
+          <Eyebrow>If you hit…</Eyebrow>
+          <span style={{ fontSize: 11, color: BP.textDim }}>Bench TM {currentTm} lb</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          {projections.map((p) => {
+            const isActive = activeBump != null && p.result.bumpAmount === activeBump;
+            return (
+              <div
+                key={p.repsLabel}
+                data-testid={`amrap-tm-row-${p.result.bumpAmount}`}
+                className="flex items-center justify-between"
+                style={{
+                  fontSize: 13,
+                  padding: "5px 8px",
+                  borderRadius: 8,
+                  background: isActive ? BP.accentSoft : "transparent",
+                  fontWeight: isActive ? 700 : 500,
+                }}
+              >
+                <span style={{ color: isActive ? BP.text : BP.textDim }}>
+                  <Mono style={{ color: "inherit", fontWeight: "inherit" }}>{p.repsLabel}</Mono> reps
+                </span>
+                <span className="flex items-center gap-2">
+                  <span style={{ color: p.result.bumpAmount > 0 ? BP.accent : BP.textDim }}>
+                    {p.result.bumpAmount > 0 ? `+${p.result.bumpAmount} lb` : "hold"}
+                  </span>
+                  <span aria-hidden style={{ color: BP.textFaint }}>
+                    →
+                  </span>
+                  <Mono style={{ color: isActive ? BP.text : BP.textMuted, fontWeight: 700 }}>
+                    {p.result.newTm}
+                  </Mono>
+                  <span style={{ color: BP.textDim, fontWeight: 500 }}>lb</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
