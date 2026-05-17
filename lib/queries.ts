@@ -240,28 +240,60 @@ export async function getSessionExercises(sessionId: string) {
     .orderBy(sessionExercises.orderIndex);
 }
 
+// A 0-set session this old was started but never trained — the user opened a
+// workout, logged nothing, and walked away. Nothing to resume.
+const STALE_PHANTOM_MS = 3 * 60 * 60 * 1000;
+// A session with sets logged but never completed, this far past any plausible
+// workout length, has been abandoned mid-way.
+const STALE_ABANDONED_MS = 12 * 60 * 60 * 1000;
+
 export async function getInProgressSession() {
+  // Newest first. The status filter matters: abandoned/partial sessions can
+  // also have completed_at IS NULL, and without it they'd leak into the
+  // resume banner.
   const rows = await db
     .select({ s: workoutSessions, pd: programDays })
     .from(workoutSessions)
     .leftJoin(programDays, eq(workoutSessions.programDayId, programDays.id))
-    .where(isNull(workoutSessions.completedAt))
-    .orderBy(desc(workoutSessions.startedAt))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
-  const [setCountRow] = await db
-    .select({ c: sql<number>`count(*)` })
-    .from(workoutSets)
-    .where(eq(workoutSets.sessionId, row.s.id));
-  return {
-    sessionId: row.s.id,
-    isExtra: row.s.isExtra,
-    programDayId: row.s.programDayId,
-    label: row.pd?.displayName ?? "Extra session",
-    startedAt: (row.s.startedAt as Date).toISOString(),
-    setsLogged: Number(setCountRow?.c ?? 0),
-  };
+    .where(and(isNull(workoutSessions.completedAt), eq(workoutSessions.status, "in_progress")))
+    .orderBy(desc(workoutSessions.startedAt));
+
+  const now = Date.now();
+  for (const row of rows) {
+    const [setCountRow] = await db
+      .select({ c: sql<number>`count(*)` })
+      .from(workoutSets)
+      .where(eq(workoutSets.sessionId, row.s.id));
+    const setsLogged = Number(setCountRow?.c ?? 0);
+    const ageMs = now - (row.s.startedAt as Date).getTime();
+
+    // Phantom: started, never trained, gone stale. Hard-delete it — there's
+    // nothing to preserve, and opening the day again rebuilds an identical
+    // snapshot. This is what kept the resume banner nagging for days after an
+    // accidental "Start workout" tap.
+    if (setsLogged === 0 && ageMs > STALE_PHANTOM_MS) {
+      await db.delete(workoutSessions).where(eq(workoutSessions.id, row.s.id));
+      continue;
+    }
+    // Real workout abandoned mid-way: keep the logged sets but stop nagging.
+    if (setsLogged > 0 && ageMs > STALE_ABANDONED_MS) {
+      await db
+        .update(workoutSessions)
+        .set({ status: "abandoned" })
+        .where(eq(workoutSessions.id, row.s.id));
+      continue;
+    }
+
+    return {
+      sessionId: row.s.id,
+      isExtra: row.s.isExtra,
+      programDayId: row.s.programDayId,
+      label: row.pd?.displayName ?? "Extra session",
+      startedAt: (row.s.startedAt as Date).toISOString(),
+      setsLogged,
+    };
+  }
+  return null;
 }
 
 export async function getLastCompletedSessionAt(): Promise<Date | null> {
