@@ -8,8 +8,19 @@ import { manualSetTmAction } from "@/app/actions";
 import { toast } from "sonner";
 import type { LiftStats, WeekBucket } from "@/lib/lift-stats";
 
-type TabId = "bench_press" | "back_squat" | "all";
+type TabId = "bench_press" | "back_squat" | "all" | "history";
 type LiftName = "bench_press" | "back_squat";
+
+// Session-type → accent colour, mirroring the Program page.
+const SESSION_COLORS: Record<string, string> = {
+  upper_a: "#FF2F2F",
+  upper_b: "#ff6b47",
+  upper_c: "#ffaa3a",
+  lower_a: "#3a8dff",
+  lower_b: "#6e6cff",
+  deload: "#888888",
+  test: "#ffffff",
+};
 
 export interface ExerciseEntry {
   id: string;
@@ -49,6 +60,33 @@ export interface ProgramContext {
   adherenceTotal: number;
 }
 
+export interface SessionListItem {
+  id: string;
+  name: string;
+  sessionType: string | null;
+  completedAt: string;
+  setCount: number;
+}
+
+export interface SessionSet {
+  setNumber: number;
+  weight: number;
+  reps: number;
+  rir: number | null;
+  isAmrap: boolean;
+  isWarmup: boolean;
+}
+
+export interface SessionDetail {
+  id: string;
+  name: string;
+  sessionType: string | null;
+  completedAt: string;
+  notes: string | null;
+  bodyWeightLb: number | null;
+  exercises: Array<{ name: string; muscleGroup: string; sets: SessionSet[] }>;
+}
+
 interface Props {
   initial: string;
   lifts: LiftSummary[];
@@ -56,12 +94,16 @@ interface Props {
   exerciseEntries: ExerciseEntry[];
   selectedExercise: ExerciseHistory | null;
   selectedExerciseId: string | null;
+  sessionList: SessionListItem[];
+  selectedSession: SessionDetail | null;
+  selectedSessionId: string | null;
 }
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: "bench_press", label: "Bench" },
   { id: "back_squat", label: "Squat" },
   { id: "all", label: "All" },
+  { id: "history", label: "History" },
 ];
 
 const DAY_MS = 86_400_000;
@@ -134,9 +176,13 @@ export default function LiftsClient({
   exerciseEntries,
   selectedExercise,
   selectedExerciseId,
+  sessionList,
+  selectedSession,
+  selectedSessionId,
 }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<TabId>(() => {
+    if (selectedSessionId) return "history";
     if (selectedExerciseId) return "all";
     return TABS.find((t) => t.id === initial)?.id ?? "bench_press";
   });
@@ -176,7 +222,8 @@ export default function LiftsClient({
             data-testid={`tab-${t.id}`}
             onClick={() => {
               setTab(t.id);
-              if (t.id !== "all" && selectedExerciseId) {
+              // Drop any open detail view (exercise / session) when switching.
+              if (selectedExerciseId || selectedSessionId) {
                 router.replace(`/lifts?l=${t.id}`, { scroll: false });
               }
             }}
@@ -210,6 +257,20 @@ export default function LiftsClient({
             search={search}
             onSearch={setSearch}
             onPick={(id) => router.push(`/lifts?ex=${id}`, { scroll: false })}
+          />
+        )
+      ) : null}
+
+      {tab === "history" ? (
+        selectedSession ? (
+          <SessionDetailView
+            session={selectedSession}
+            onBack={() => router.replace("/lifts?l=history", { scroll: false })}
+          />
+        ) : (
+          <HistoryList
+            sessions={sessionList}
+            onPick={(id) => router.push(`/lifts?session=${id}`, { scroll: false })}
           />
         )
       ) : null}
@@ -780,6 +841,248 @@ function ManualTmDialog({
           </BigButton>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── History (past sessions) ──────────────────────────────────────────────────
+
+function HistoryList({
+  sessions,
+  onPick,
+}: {
+  sessions: SessionListItem[];
+  onPick: (id: string) => void;
+}) {
+  // Group by month so a long history stays scannable.
+  const groups = useMemo(() => {
+    const out: Array<{ label: string; items: SessionListItem[] }> = [];
+    for (const s of sessions) {
+      const label = new Date(s.completedAt).toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric",
+      });
+      let g = out[out.length - 1];
+      if (!g || g.label !== label) {
+        g = { label, items: [] };
+        out.push(g);
+      }
+      g.items.push(s);
+    }
+    return out;
+  }, [sessions]);
+
+  if (sessions.length === 0) {
+    return (
+      <div
+        className="text-sm"
+        style={{
+          marginTop: 18,
+          color: BP.textMuted,
+          padding: 24,
+          textAlign: "center",
+          background: BP.surface,
+          borderRadius: 12,
+          border: `1px solid ${BP.borderSoft}`,
+        }}
+      >
+        No completed workouts yet.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      {groups.map((g) => (
+        <div key={g.label} style={{ marginBottom: 16 }}>
+          <div
+            className="px-1.5 pb-1.5"
+            style={{
+              fontSize: 11,
+              color: BP.textDim,
+              fontWeight: 600,
+              letterSpacing: 0.6,
+              textTransform: "uppercase",
+            }}
+          >
+            {g.label}
+          </div>
+          <div
+            style={{
+              background: BP.surface,
+              borderRadius: 14,
+              border: `1px solid ${BP.borderSoft}`,
+              overflow: "hidden",
+            }}
+          >
+            {g.items.map((s, i) => (
+              <button
+                key={s.id}
+                data-testid={`history-pick-${s.id}`}
+                onClick={() => onPick(s.id)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "13px 14px",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom:
+                    i < g.items.length - 1 ? `1px solid ${BP.borderSoft}` : "none",
+                  color: BP.text,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <div
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    flexShrink: 0,
+                    background: SESSION_COLORS[s.sessionType ?? ""] ?? BP.textDim,
+                  }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name}</div>
+                  <Mono style={{ fontSize: 11, color: BP.textDim, marginTop: 2 }}>
+                    {fmtDate(s.completedAt)} · {s.setCount} set{s.setCount === 1 ? "" : "s"}
+                  </Mono>
+                </div>
+                <span style={{ fontSize: 16, color: BP.textDim }}>›</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SessionDetailView({
+  session,
+  onBack,
+}: {
+  session: SessionDetail;
+  onBack: () => void;
+}) {
+  const when = new Date(session.completedAt);
+  const totalSets = session.exercises.reduce((n, ex) => n + ex.sets.length, 0);
+  const accent = SESSION_COLORS[session.sessionType ?? ""] ?? BP.textDim;
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <button
+        onClick={onBack}
+        data-testid="session-detail-back"
+        style={{
+          height: 32,
+          padding: "0 10px",
+          background: BP.surface,
+          border: `1px solid ${BP.borderSoft}`,
+          borderRadius: 8,
+          color: BP.textMuted,
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: "pointer",
+          marginBottom: 12,
+        }}
+      >
+        ← All workouts
+      </button>
+      <Eyebrow>
+        {when.toLocaleDateString(undefined, {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        })}
+      </Eyebrow>
+      <div className="flex items-center gap-2" style={{ marginTop: 2 }}>
+        <div style={{ width: 9, height: 9, borderRadius: 5, background: accent }} />
+        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.025em" }}>
+          {session.name}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mt-1" style={{ color: BP.textDim, fontSize: 12 }}>
+        <Mono>{session.exercises.length} exercises</Mono>
+        <span>·</span>
+        <Mono>{totalSets} sets</Mono>
+        {session.bodyWeightLb ? (
+          <>
+            <span>·</span>
+            <Mono>BW {session.bodyWeightLb} lb</Mono>
+          </>
+        ) : null}
+      </div>
+
+      {session.exercises.length === 0 ? (
+        <CardShell style={{ marginTop: 16 }}>
+          <div className="text-sm" style={{ color: BP.textMuted }}>
+            No sets were logged in this session.
+          </div>
+        </CardShell>
+      ) : (
+        session.exercises.map((ex, i) => (
+          <CardShell key={i} style={{ marginTop: i === 0 ? 16 : 8, padding: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                padding: "13px 14px 10px",
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{ex.name}</div>
+              <Mono style={{ fontSize: 10, color: BP.textDim, textTransform: "uppercase" }}>
+                {ex.muscleGroup}
+              </Mono>
+            </div>
+            {ex.sets.map((s, j) => (
+              <div
+                key={j}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "9px 14px",
+                  borderTop: `1px solid ${BP.borderSoft}`,
+                }}
+              >
+                <Mono
+                  style={{
+                    width: 52,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: BP.textDim,
+                  }}
+                >
+                  {s.isWarmup ? "Warm" : `Set ${s.setNumber}`}
+                </Mono>
+                <Mono style={{ fontSize: 15, fontWeight: 700, color: BP.text }}>
+                  {s.weight}
+                  <span style={{ color: BP.textDim, fontWeight: 500 }}> × {s.reps}</span>
+                </Mono>
+                <div style={{ flex: 1 }} />
+                {s.isAmrap ? <Pill color={BP.accent}>AMRAP</Pill> : null}
+                {s.rir != null ? (
+                  <Mono style={{ fontSize: 11, color: BP.textDim }}>RIR {s.rir}</Mono>
+                ) : null}
+              </div>
+            ))}
+          </CardShell>
+        ))
+      )}
+
+      {session.notes ? (
+        <CardShell style={{ marginTop: 8 }}>
+          <Eyebrow>Notes</Eyebrow>
+          <div className="text-[13px] mt-1.5" style={{ color: BP.textMuted }}>
+            {session.notes}
+          </div>
+        </CardShell>
+      ) : null}
     </div>
   );
 }

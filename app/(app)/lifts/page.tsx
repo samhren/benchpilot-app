@@ -4,12 +4,13 @@ import { db } from "@/lib/db";
 import {
   exercises as exercisesTable,
   lifts as liftsTable,
+  programDays as programDaysTable,
   sessionExercises,
   tmHistory,
   workoutSessions,
   workoutSets,
 } from "@/lib/db/schema";
-import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { getActiveProgram, getAllProgramDays, getSettings } from "@/lib/queries";
 import { computeProgramWeek, isoDate, scheduledDateForDay } from "@/lib/program-state";
 import { computeLiftStats, type LiftStats, type StatSet } from "@/lib/lift-stats";
@@ -18,6 +19,8 @@ import LiftsClient, {
   type ExerciseHistory,
   type LiftSummary,
   type ProgramContext,
+  type SessionDetail,
+  type SessionListItem,
 } from "./lifts-client";
 
 const SHOWN_LIFTS = ["bench_press", "back_squat"] as const;
@@ -82,12 +85,108 @@ async function buildExerciseHistory(
   };
 }
 
+// Every completed workout, newest first — the History tab list.
+async function buildSessionList(): Promise<SessionListItem[]> {
+  const rows = await db
+    .select({
+      id: workoutSessions.id,
+      displayName: programDaysTable.displayName,
+      sessionType: programDaysTable.sessionType,
+      completedAt: workoutSessions.completedAt,
+      isExtra: workoutSessions.isExtra,
+      setCount: sql<number>`count(${workoutSets.id})`,
+    })
+    .from(workoutSessions)
+    .leftJoin(programDaysTable, eq(workoutSessions.programDayId, programDaysTable.id))
+    .leftJoin(workoutSets, eq(workoutSets.sessionId, workoutSessions.id))
+    .where(isNotNull(workoutSessions.completedAt))
+    .groupBy(workoutSessions.id, programDaysTable.id)
+    .orderBy(desc(workoutSessions.completedAt))
+    .limit(80);
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.displayName ?? (r.isExtra ? "Extra session" : "Workout"),
+    sessionType: r.sessionType ?? null,
+    completedAt: new Date(r.completedAt as Date).toISOString(),
+    setCount: Number(r.setCount),
+  }));
+}
+
+// One completed workout, broken out exercise-by-exercise with every set.
+async function buildSessionDetail(sessionId: string): Promise<SessionDetail | null> {
+  const [header] = await db
+    .select({
+      id: workoutSessions.id,
+      completedAt: workoutSessions.completedAt,
+      notes: workoutSessions.notes,
+      bodyWeightLb: workoutSessions.bodyWeightLb,
+      isExtra: workoutSessions.isExtra,
+      displayName: programDaysTable.displayName,
+      sessionType: programDaysTable.sessionType,
+    })
+    .from(workoutSessions)
+    .leftJoin(programDaysTable, eq(workoutSessions.programDayId, programDaysTable.id))
+    .where(eq(workoutSessions.id, sessionId))
+    .limit(1);
+  if (!header || !header.completedAt) return null;
+
+  const setRows = await db
+    .select({
+      exerciseId: workoutSets.exerciseId,
+      exerciseName: exercisesTable.name,
+      muscleGroup: exercisesTable.muscleGroup,
+      orderIndex: sessionExercises.orderIndex,
+      setNumber: workoutSets.setNumber,
+      weightUsed: workoutSets.weightUsed,
+      repsCompleted: workoutSets.repsCompleted,
+      rir: workoutSets.rir,
+      isAmrap: workoutSets.isAmrap,
+      isWarmup: workoutSets.isWarmup,
+    })
+    .from(workoutSets)
+    .innerJoin(exercisesTable, eq(workoutSets.exerciseId, exercisesTable.id))
+    .leftJoin(sessionExercises, eq(workoutSets.sessionExerciseId, sessionExercises.id))
+    .where(eq(workoutSets.sessionId, sessionId))
+    .orderBy(asc(sessionExercises.orderIndex), asc(workoutSets.setNumber));
+
+  const byExercise = new Map<string, SessionDetail["exercises"][number]>();
+  const order: string[] = [];
+  for (const r of setRows) {
+    if (r.repsCompleted == null || r.weightUsed == null) continue;
+    let group = byExercise.get(r.exerciseId);
+    if (!group) {
+      group = { name: r.exerciseName, muscleGroup: r.muscleGroup, sets: [] };
+      byExercise.set(r.exerciseId, group);
+      order.push(r.exerciseId);
+    }
+    group.sets.push({
+      setNumber: r.setNumber,
+      weight: r.weightUsed,
+      reps: r.repsCompleted,
+      rir: r.rir,
+      isAmrap: r.isAmrap,
+      isWarmup: r.isWarmup,
+    });
+  }
+
+  return {
+    id: header.id,
+    name: header.displayName ?? (header.isExtra ? "Extra session" : "Workout"),
+    sessionType: header.sessionType ?? null,
+    completedAt: new Date(header.completedAt as Date).toISOString(),
+    notes: header.notes,
+    bodyWeightLb: header.bodyWeightLb,
+    exercises: order.map((id) => byExercise.get(id)!),
+  };
+}
+
 export default async function LiftsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ l?: string; ex?: string }>;
+  searchParams: Promise<{ l?: string; ex?: string; session?: string }>;
 }) {
-  const { l, ex } = await searchParams;
+  const { l, ex, session } = await searchParams;
   const initial = (l as string | undefined) ?? "bench_press";
 
   const [settingsRow, program] = await Promise.all([getSettings(), getActiveProgram()]);
@@ -202,7 +301,11 @@ export default async function LiftsPage({
     .orderBy(asc(exercisesTable.muscleGroup), asc(exercisesTable.name));
   const exerciseEntries: ExerciseEntry[] = allExercises;
 
-  const selectedExercise = ex ? await buildExerciseHistory(ex, tz) : null;
+  const [selectedExercise, sessionList, selectedSession] = await Promise.all([
+    ex ? buildExerciseHistory(ex, tz) : Promise.resolve(null),
+    buildSessionList(),
+    session ? buildSessionDetail(session) : Promise.resolve(null),
+  ]);
 
   return (
     <LiftsClient
@@ -212,6 +315,9 @@ export default async function LiftsPage({
       exerciseEntries={exerciseEntries}
       selectedExercise={selectedExercise}
       selectedExerciseId={ex ?? null}
+      sessionList={sessionList}
+      selectedSession={selectedSession}
+      selectedSessionId={session ?? null}
     />
   );
 }

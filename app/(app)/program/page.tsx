@@ -178,18 +178,21 @@ function DayChip({
     );
   }
   const color = SESSION_COLORS[sessionType] || BP.textMuted;
+  // A completed session is "done" first and foremost — only highlight today's
+  // session while it's still outstanding.
+  const highlight = isToday && !isDone;
   const inner = (
     <div
       style={{
         height: 40,
         borderRadius: 8,
-        background: isToday ? color : isDone ? "rgba(255,255,255,0.04)" : BP.surface,
-        border: `1px solid ${BP.borderSoft}`,
+        background: highlight ? color : isDone ? "rgba(255,255,255,0.04)" : BP.surface,
+        border: `1px solid ${isDone ? color + "55" : BP.borderSoft}`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         position: "relative",
-        boxShadow: isToday
+        boxShadow: highlight
           ? `0 0 0 3px rgba(255,47,47,0.18), 0 0 20px rgba(255,47,47,0.3)`
           : "none",
         cursor: href ? "pointer" : "default",
@@ -199,12 +202,25 @@ function DayChip({
         style={{
           fontSize: 11,
           fontWeight: 700,
-          color: isToday ? "#fff" : isDone ? BP.textDim : color,
+          color: highlight ? "#fff" : isDone ? BP.textDim : color,
           opacity: isDone ? 0.7 : 1,
         }}
       >
         {SESSION_SHORT[sessionType]}
       </Mono>
+      {isDone ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 3,
+            right: 3,
+            width: 5,
+            height: 5,
+            borderRadius: 3,
+            background: color,
+          }}
+        />
+      ) : null}
     </div>
   );
   return href ? <Link href={href}>{inner}</Link> : inner;
