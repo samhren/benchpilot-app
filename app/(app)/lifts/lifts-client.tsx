@@ -2,9 +2,11 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { BP, BigButton, Eyebrow, Mono, Pill } from "@/components/ui/primitives";
+import { BP, BigButton, Eyebrow, Mono, Pill, StatCard } from "@/components/ui/primitives";
+import { BarChart, TrendChart, type Bar, type TrendPoint } from "@/components/ui/charts";
 import { manualSetTmAction } from "@/app/actions";
 import { toast } from "sonner";
+import type { LiftStats, WeekBucket } from "@/lib/lift-stats";
 
 type TabId = "bench_press" | "back_squat" | "all";
 type LiftName = "bench_press" | "back_squat";
@@ -20,42 +22,37 @@ export interface ExerciseHistory {
   name: string;
   muscleGroup: string;
   equipment: string | null;
-  totalSets: number;
-  lastTrainedAt: string | null;
-  topSetSeries: Array<{ date: string; weight: number; reps: number }>;
-  repPrs: Array<{
-    reps: number;
-    pr: { weight: number; reps: number; completedAt: string } | null;
-  }>;
+  stats: LiftStats;
+}
+
+export interface TmEvent {
+  trainingMax: number;
+  effectiveFrom: string;
+  reason: string;
+  amrapReps: number | null;
+  notes: string | null;
 }
 
 export interface LiftSummary {
   name: string;
   currentOneRm: number | null;
   trainingMax: number | null;
-  bestSet:
-    | {
-        weight: number;
-        reps: number;
-        e1RM: number;
-        completedAt: string;
-        isAmrap: boolean;
-      }
-    | null;
-  lastTrainedAt: string | null;
-  volumeSeries: Array<{ date: string; volume: number; topWeight: number }>;
-  history: Array<{
-    trainingMax: number;
-    effectiveFrom: string;
-    reason: string;
-    amrapReps: number | null;
-    notes: string | null;
-  }>;
+  stats: LiftStats;
+  history: TmEvent[];
+}
+
+export interface ProgramContext {
+  week: number;
+  totalWeeks: number;
+  block: string;
+  adherenceDone: number;
+  adherenceTotal: number;
 }
 
 interface Props {
   initial: string;
   lifts: LiftSummary[];
+  program: ProgramContext | null;
   exerciseEntries: ExerciseEntry[];
   selectedExercise: ExerciseHistory | null;
   selectedExerciseId: string | null;
@@ -67,9 +64,73 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: "all", label: "All" },
 ];
 
+const DAY_MS = 86_400_000;
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function ageLabel(iso: string | null): string {
+  if (!iso) return "Never";
+  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / DAY_MS));
+  return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+// ── Building blocks ────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: 26, marginBottom: 10 }}>
+      <Eyebrow>{children}</Eyebrow>
+    </div>
+  );
+}
+
+function CardShell({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      style={{
+        background: BP.surface,
+        borderRadius: 16,
+        border: `1px solid ${BP.borderSoft}`,
+        padding: 16,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function e1rmPoints(stats: LiftStats): TrendPoint[] {
+  return stats.e1rmSeries.map((p) => ({
+    t: p.t,
+    v: p.e1rm,
+    label: fmtDate(p.date),
+    sub: `${p.weight}×${p.reps}${p.isAmrap ? " AMRAP" : ""}`,
+  }));
+}
+
+function volumeBars(weeks: WeekBucket[]): Bar[] {
+  return weeks.map((w) => ({
+    label: fmtDate(w.weekStart),
+    value: w.volume,
+    sub: `${w.sets} sets`,
+  }));
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
+
 export default function LiftsClient({
   initial,
   lifts,
+  program,
   exerciseEntries,
   selectedExercise,
   selectedExerciseId,
@@ -77,8 +138,7 @@ export default function LiftsClient({
   const router = useRouter();
   const [tab, setTab] = useState<TabId>(() => {
     if (selectedExerciseId) return "all";
-    const match = TABS.find((t) => t.id === initial)?.id;
-    return match ?? "bench_press";
+    return TABS.find((t) => t.id === initial)?.id ?? "bench_press";
   });
   const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState("");
@@ -88,33 +148,16 @@ export default function LiftsClient({
     [lifts, tab],
   );
 
-  const tmSeries = useMemo(() => {
-    if (!lift) return [] as number[];
-    return lift.history
-      .slice()
-      .reverse()
-      .filter((r) => r.trainingMax > 0)
-      .map((r) => r.trainingMax);
-  }, [lift]);
-
-  const visibleHistory = useMemo(
-    () => (lift?.history ?? []).filter((r) => r.reason !== "initial"),
-    [lift],
-  );
-
   return (
     <div style={{ padding: "12px 20px 110px" }}>
-      <Eyebrow style={{ paddingTop: 4 }}>Training maxes</Eyebrow>
-      <div
-        style={{
-          fontSize: 28,
-          fontWeight: 700,
-          letterSpacing: "-0.03em",
-          marginTop: 4,
-          marginBottom: 18,
-        }}
-      >
-        Lifts
+      <Eyebrow style={{ paddingTop: 4 }}>Progress</Eyebrow>
+      <div className="flex items-baseline justify-between" style={{ marginTop: 4, marginBottom: 18 }}>
+        <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.03em" }}>Lifts</div>
+        {program ? (
+          <Mono style={{ fontSize: 11, color: BP.textDim }}>
+            Week {program.week} of {program.totalWeeks} · Block {program.block}
+          </Mono>
+        ) : null}
       </div>
 
       <div
@@ -174,98 +217,10 @@ export default function LiftsClient({
       {lift ? (
         <>
           <TmHeadline lift={lift} />
-
-          <EstimatedOneRmCard best={lift.bestSet} trainingMax={lift.trainingMax} />
-
-          <LastTrainedCard
-            lastTrainedAt={lift.lastTrainedAt}
-            series={lift.volumeSeries}
-          />
-
-          {tmSeries.length >= 2 ? (
-            <div
-              style={{
-                marginTop: 22,
-                padding: "18px 16px 14px",
-                background: BP.surface,
-                borderRadius: 18,
-                border: `1px solid ${BP.borderSoft}`,
-              }}
-            >
-              <div className="flex justify-between items-baseline">
-                <Eyebrow>{tmSeries.length} TM events</Eyebrow>
-                <Mono style={{ fontSize: 11, color: BP.green }}>
-                  +{(tmSeries[tmSeries.length - 1] - tmSeries[0]).toFixed(0)} lb
-                </Mono>
-              </div>
-              <TMChart data={tmSeries} />
-            </div>
-          ) : null}
-
-          <div style={{ marginTop: 22 }}>
-            <div className="flex justify-between items-center pl-0.5 pb-3">
-              <Eyebrow>History</Eyebrow>
-              <span className="font-mono text-[11px]" style={{ color: BP.textDim }}>
-                {visibleHistory.length} bumps
-              </span>
-            </div>
-            <div
-              style={{
-                background: BP.surface,
-                borderRadius: 16,
-                border: `1px solid ${BP.borderSoft}`,
-                overflow: "hidden",
-              }}
-            >
-              {visibleHistory.length === 0 ? (
-                <div className="p-4 text-sm" style={{ color: BP.textMuted }}>
-                  No history yet.
-                </div>
-              ) : (
-                visibleHistory.map((h, i) => {
-                  const dt = new Date(h.effectiveFrom);
-                  const dateStr = dt.toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  });
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 14,
-                        padding: "14px 16px",
-                        borderBottom:
-                          i < visibleHistory.length - 1
-                            ? `1px solid ${BP.borderSoft}`
-                            : "none",
-                      }}
-                    >
-                      <Mono
-                        style={{
-                          fontSize: 14,
-                          fontWeight: 700,
-                          color: BP.accent,
-                          width: 56,
-                        }}
-                      >
-                        {h.trainingMax} lb
-                      </Mono>
-                      <div style={{ flex: 1 }}>
-                        <div className="text-[13px]" style={{ color: BP.text, fontWeight: 500 }}>
-                          {h.notes ?? h.reason}
-                        </div>
-                        <Mono style={{ fontSize: 11, color: BP.textDim, marginTop: 2 }}>
-                          {dateStr}
-                        </Mono>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          <StrengthSection lift={lift} />
+          <VolumeSection stats={lift.stats} />
+          <ConsistencySection stats={lift.stats} program={program} />
+          <TmHistory history={lift.history} />
 
           <div className="mt-4">
             <BigButton
@@ -290,6 +245,8 @@ export default function LiftsClient({
     </div>
   );
 }
+
+// ── TM headline ──────────────────────────────────────────────────────────────
 
 function TmHeadline({ lift }: { lift: LiftSummary }) {
   return (
@@ -318,215 +275,384 @@ function TmHeadline({ lift }: { lift: LiftSummary }) {
   );
 }
 
-function EstimatedOneRmCard({
-  best,
-  trainingMax,
-}: {
-  best: LiftSummary["bestSet"];
-  trainingMax: number | null;
-}) {
-  if (!best) {
-    return (
-      <div
-        style={{
-          marginTop: 18,
-          padding: 16,
-          background: BP.surface,
-          borderRadius: 16,
-          border: `1px solid ${BP.borderSoft}`,
-        }}
-      >
-        <Eyebrow>Estimated 1RM</Eyebrow>
-        <div className="text-sm mt-2" style={{ color: BP.textMuted }}>
-          No logged sets yet. Finish a top set to see your projected max.
-        </div>
-      </div>
-    );
-  }
+// ── Strength ─────────────────────────────────────────────────────────────────
 
-  const dateStr = new Date(best.completedAt).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-  const tmGap = trainingMax ? best.e1RM - trainingMax : null;
+function StrengthSection({ lift }: { lift: LiftSummary }) {
+  const { stats } = lift;
+  const best = stats.bestSet;
+
+  const tmSteps = useMemo(
+    () =>
+      lift.history
+        .map((h) => ({ t: new Date(h.effectiveFrom).getTime(), v: h.trainingMax }))
+        .filter((s) => s.v > 0)
+        .sort((a, b) => a.t - b.t),
+    [lift.history],
+  );
+
+  const points = e1rmPoints(stats);
+  const trend =
+    stats.currentE1rm != null && stats.startE1rm != null
+      ? stats.currentE1rm - stats.startE1rm
+      : null;
 
   return (
-    <div
-      style={{
-        marginTop: 18,
-        padding: 16,
-        background: BP.surface,
-        borderRadius: 16,
-        border: `1px solid ${BP.borderSoft}`,
-      }}
-    >
-      <div className="flex justify-between items-baseline">
-        <Eyebrow>Estimated 1RM</Eyebrow>
-        <Mono style={{ fontSize: 11, color: BP.textDim }}>Epley</Mono>
-      </div>
-      <div className="flex items-baseline gap-2 mt-1.5">
-        <Mono
-          style={{
-            fontSize: 36,
-            fontWeight: 800,
-            letterSpacing: "-0.03em",
-            lineHeight: 1,
-          }}
-          data-testid="estimated-1rm"
-        >
-          {best.e1RM}
-        </Mono>
-        <Mono style={{ fontSize: 14, color: BP.textDim, fontWeight: 500 }}>lb</Mono>
-        {tmGap != null && tmGap !== 0 ? (
-          <Mono
+    <>
+      <SectionLabel>Strength</SectionLabel>
+      <CardShell>
+        <div className="flex justify-between items-baseline">
+          <Eyebrow>Estimated 1RM</Eyebrow>
+          <Mono style={{ fontSize: 11, color: BP.textDim }}>Epley</Mono>
+        </div>
+        {best ? (
+          <>
+            <div className="flex items-baseline gap-2 mt-1.5">
+              <Mono
+                style={{ fontSize: 36, fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1 }}
+                data-testid="estimated-1rm"
+              >
+                {best.e1rm}
+              </Mono>
+              <Mono style={{ fontSize: 14, color: BP.textDim, fontWeight: 500 }}>lb</Mono>
+              {trend != null && trend !== 0 ? (
+                <Mono
+                  style={{
+                    fontSize: 11,
+                    color: trend > 0 ? BP.green : BP.textDim,
+                    marginLeft: 4,
+                  }}
+                >
+                  {trend > 0 ? "▲ +" : "▼ "}
+                  {trend} since first session
+                </Mono>
+              ) : null}
+            </div>
+            {points.length >= 2 ? (
+              <div style={{ marginTop: 10 }}>
+                <TrendChart points={points} steps={tmSteps} unit="lb" testId="e1rm-chart" />
+                <Mono style={{ fontSize: 10, color: BP.textDim }}>
+                  ● e1RM per session · ┄ training max
+                </Mono>
+              </div>
+            ) : (
+              <div className="text-[13px] mt-2" style={{ color: BP.textMuted }}>
+                Log a couple more sessions to see the trend.
+              </div>
+            )}
+            <div className="text-[13px] mt-3" style={{ color: BP.textMuted }}>
+              Best set <Mono>{best.weight}</Mono> lb × <Mono>{best.reps}</Mono>
+              {best.isAmrap ? " (AMRAP)" : ""} · <Mono>{fmtDate(best.completedAt)}</Mono>
+            </div>
+          </>
+        ) : (
+          <div className="text-sm mt-2" style={{ color: BP.textMuted }}>
+            No logged sets yet. Finish a top set to see your projected max.
+          </div>
+        )}
+      </CardShell>
+
+      <RepPrStrip stats={stats} />
+    </>
+  );
+}
+
+function RepPrStrip({ stats }: { stats: LiftStats }) {
+  // The headline rep maxes — heaviest weight hit for ≥1 / ≥3 / ≥5 reps.
+  const shown = [1, 3, 5];
+  const rows = shown.map((n) => stats.repPrs.find((r) => r.reps === n) ?? { reps: n, pr: null });
+  if (rows.every((r) => !r.pr)) return null;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 8 }}>
+      {rows.map((row) => (
+        <CardShell key={row.reps} style={{ padding: "12px 12px 14px" }}>
+          <div
             style={{
               fontSize: 11,
-              color: tmGap > 0 ? BP.green : BP.textDim,
-              marginLeft: 4,
+              fontWeight: 600,
+              letterSpacing: 0.6,
+              color: BP.textMuted,
+              textTransform: "uppercase",
             }}
           >
-            {tmGap > 0 ? "+" : ""}
-            {tmGap} vs TM
-          </Mono>
-        ) : null}
-      </div>
-      <div className="text-[13px] mt-2" style={{ color: BP.textMuted }}>
-        Best set <Mono>{best.weight}</Mono> lb × <Mono>{best.reps}</Mono>
-        {best.isAmrap ? " (AMRAP)" : ""} · <Mono>{dateStr}</Mono>
-      </div>
+            {row.reps}RM
+          </div>
+          {row.pr ? (
+            <>
+              <Mono
+                style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.03em", marginTop: 2 }}
+              >
+                {row.pr.weight}
+              </Mono>
+              <Mono style={{ fontSize: 10, color: BP.textDim }}>
+                ×{row.pr.reps} · {fmtDate(row.pr.completedAt)}
+              </Mono>
+            </>
+          ) : (
+            <Mono style={{ fontSize: 22, fontWeight: 800, color: BP.textDim, marginTop: 2 }}>—</Mono>
+          )}
+        </CardShell>
+      ))}
     </div>
   );
 }
 
-function LastTrainedCard({
-  lastTrainedAt,
-  series,
-}: {
-  lastTrainedAt: string | null;
-  series: LiftSummary["volumeSeries"];
-}) {
-  if (!lastTrainedAt) {
-    return (
-      <div
-        style={{
-          marginTop: 14,
-          padding: 16,
-          background: BP.surface,
-          borderRadius: 16,
-          border: `1px solid ${BP.borderSoft}`,
-        }}
-      >
-        <Eyebrow>Activity</Eyebrow>
-        <div className="text-sm mt-2" style={{ color: BP.textMuted }}>
-          Not trained yet.
-        </div>
+// ── Volume ───────────────────────────────────────────────────────────────────
+
+function VolumeSection({ stats }: { stats: LiftStats }) {
+  const delta = stats.thisWeekVolume - stats.lastWeekVolume;
+  const pct =
+    stats.lastWeekVolume > 0 ? Math.round((delta / stats.lastWeekVolume) * 100) : null;
+  const deltaLabel =
+    stats.thisWeekVolume === 0
+      ? "no sets yet this week"
+      : pct != null
+        ? `${pct >= 0 ? "▲ +" : "▼ "}${pct}% vs last week`
+        : "first week logged";
+
+  return (
+    <>
+      <SectionLabel>Volume</SectionLabel>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <StatCard
+          label="This week"
+          value={stats.thisWeekVolume.toLocaleString()}
+          unit="lb"
+          sub={deltaLabel}
+          accent={delta > 0 && pct != null ? BP.green : undefined}
+        />
+        <StatCard
+          label="Avg / session"
+          value={stats.avgSessionVolume.toLocaleString()}
+          unit="lb"
+          sub={`${stats.totalSessions} session${stats.totalSessions === 1 ? "" : "s"} total`}
+        />
       </div>
-    );
-  }
 
-  const last = new Date(lastTrainedAt);
-  const ageDays = Math.max(0, Math.floor((Date.now() - last.getTime()) / 86_400_000));
-  const ageLabel =
-    ageDays === 0 ? "today" : ageDays === 1 ? "yesterday" : `${ageDays} days ago`;
+      {stats.weeks.length >= 2 ? (
+        <CardShell style={{ marginTop: 8 }}>
+          <div className="flex justify-between items-baseline">
+            <Eyebrow>Weekly tonnage</Eyebrow>
+            <Mono style={{ fontSize: 11, color: BP.textDim }}>{stats.weeks.length} weeks</Mono>
+          </div>
+          <BarChart bars={volumeBars(stats.weeks)} unit="lb" testId="volume-chart" />
+          <Mono style={{ fontSize: 10, color: BP.textDim, marginTop: 2, display: "block" }}>
+            {stats.totalVolume.toLocaleString()} lb lifetime · {stats.totalSets} working sets
+          </Mono>
+        </CardShell>
+      ) : stats.weeks.length === 1 ? (
+        <CardShell style={{ marginTop: 8 }}>
+          <Eyebrow>Weekly tonnage</Eyebrow>
+          <div className="text-[13px] mt-2" style={{ color: BP.textMuted }}>
+            One week logged so far — <Mono>{stats.weeks[0].volume.toLocaleString()}</Mono> lb.
+          </div>
+        </CardShell>
+      ) : null}
+    </>
+  );
+}
 
+// ── Consistency ──────────────────────────────────────────────────────────────
+
+function ConsistencySection({
+  stats,
+  program,
+}: {
+  stats: LiftStats;
+  program: ProgramContext | null;
+}) {
+  return (
+    <>
+      <SectionLabel>Consistency</SectionLabel>
+      <CardShell>
+        <div className="flex justify-between items-start">
+          <div>
+            <Eyebrow>Last trained</Eyebrow>
+            <div
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+                marginTop: 2,
+              }}
+            >
+              {ageLabel(stats.lastTrainedAt)}
+            </div>
+          </div>
+          {stats.streakWeeks > 0 ? (
+            <Pill color={BP.green}>
+              {stats.streakWeeks} wk streak
+            </Pill>
+          ) : (
+            <Pill color={BP.textMuted}>no streak</Pill>
+          )}
+        </div>
+
+        {stats.weeks.length >= 1 ? (
+          <div style={{ marginTop: 14 }}>
+            <FrequencyStrip weeks={stats.weeks} />
+            <Mono style={{ fontSize: 10, color: BP.textDim, marginTop: 6, display: "block" }}>
+              {stats.totalSessions} session{stats.totalSessions === 1 ? "" : "s"} across{" "}
+              {stats.weeks.length} week{stats.weeks.length === 1 ? "" : "s"}
+            </Mono>
+          </div>
+        ) : (
+          <div className="text-[13px] mt-2" style={{ color: BP.textMuted }}>
+            No sessions logged yet.
+          </div>
+        )}
+      </CardShell>
+
+      {program && program.adherenceTotal > 0 ? (
+        <CardShell style={{ marginTop: 8 }}>
+          <div className="flex justify-between items-baseline">
+            <Eyebrow>Program adherence</Eyebrow>
+            <Mono style={{ fontSize: 11, color: BP.textDim }}>
+              {Math.round((program.adherenceDone / program.adherenceTotal) * 100)}%
+            </Mono>
+          </div>
+          <div className="flex items-baseline gap-2" style={{ marginTop: 6 }}>
+            <Mono style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.03em" }}>
+              {program.adherenceDone}
+            </Mono>
+            <Mono style={{ fontSize: 13, color: BP.textDim }}>
+              / {program.adherenceTotal} scheduled days done
+            </Mono>
+          </div>
+          <RatioBar done={program.adherenceDone} total={program.adherenceTotal} />
+        </CardShell>
+      ) : null}
+    </>
+  );
+}
+
+// One cell per calendar week between the first and last trained week; gaps
+// (weeks with no session) show as empty so missed weeks are visible.
+function FrequencyStrip({ weeks }: { weeks: WeekBucket[] }) {
+  const cells = useMemo(() => {
+    if (weeks.length === 0) return [] as number[];
+    const byKey = new Map(weeks.map((w) => [w.weekStart, w.sessions]));
+    const start = new Date(weeks[0].weekStart + "T00:00:00Z");
+    const end = new Date(weeks[weeks.length - 1].weekStart + "T00:00:00Z");
+    const out: number[] = [];
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 7)) {
+      out.push(byKey.get(d.toISOString().slice(0, 10)) ?? 0);
+    }
+    return out;
+  }, [weeks]);
+
+  return (
+    <div style={{ display: "flex", gap: 3 }}>
+      {cells.map((n, i) => (
+        <div
+          key={i}
+          title={`${n} session${n === 1 ? "" : "s"}`}
+          style={{
+            flex: 1,
+            height: 26,
+            borderRadius: 4,
+            background:
+              n === 0
+                ? BP.surface2
+                : n === 1
+                  ? "color-mix(in oklab, var(--bp-accent) 38%, transparent)"
+                  : BP.accent,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RatioBar({ done, total }: { done: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
   return (
     <div
       style={{
-        marginTop: 14,
-        padding: "16px 16px 12px",
-        background: BP.surface,
-        borderRadius: 16,
-        border: `1px solid ${BP.borderSoft}`,
+        marginTop: 10,
+        height: 8,
+        borderRadius: 4,
+        background: BP.surface2,
+        overflow: "hidden",
       }}
     >
-      <div className="flex justify-between items-baseline">
-        <Eyebrow>Last trained</Eyebrow>
-        <Mono style={{ fontSize: 11, color: BP.textDim }}>
-          {series.length} session{series.length === 1 ? "" : "s"}
-        </Mono>
-      </div>
-      <div className="flex items-baseline gap-2 mt-1.5">
-        <span
-          style={{
-            fontSize: 22,
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            color: BP.text,
-          }}
-        >
-          {ageLabel}
-        </span>
-        <Mono style={{ fontSize: 12, color: BP.textDim }}>
-          {last.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-        </Mono>
-      </div>
-      {series.length >= 2 ? (
-        <VolumeBars data={series} />
-      ) : (
-        <div className="text-[12px] mt-2" style={{ color: BP.textDim }}>
-          Log a couple more sessions to see volume trend.
-        </div>
-      )}
+      <div style={{ width: `${pct}%`, height: "100%", background: BP.accent }} />
     </div>
   );
 }
 
-function VolumeBars({ data }: { data: LiftSummary["volumeSeries"] }) {
-  const w = 295;
-  const h = 56;
-  const max = Math.max(...data.map((d) => d.volume), 1);
-  const barW = Math.max(4, Math.floor(w / data.length) - 4);
+// ── TM history ───────────────────────────────────────────────────────────────
+
+function TmHistory({ history }: { history: TmEvent[] }) {
+  const visible = useMemo(() => history.filter((r) => r.reason !== "initial"), [history]);
+  const [expanded, setExpanded] = useState(false);
+  const PREVIEW = 3;
+  const shown = expanded ? visible : visible.slice(0, PREVIEW);
+
   return (
-    <svg
-      width="100%"
-      height={h + 18}
-      viewBox={`0 0 ${w} ${h + 18}`}
-      style={{ marginTop: 10, display: "block" }}
-    >
-      {data.map((d, i) => {
-        const bh = Math.max(2, (d.volume / max) * h);
-        const x = i * (barW + 4);
-        const y = h - bh;
-        const isLast = i === data.length - 1;
-        return (
-          <rect
-            key={i}
-            x={x}
-            y={y}
-            width={barW}
-            height={bh}
-            rx={2}
-            fill={isLast ? "#FF2F2F" : "#3a3a3a"}
-          />
-        );
-      })}
-      <text
-        x={0}
-        y={h + 14}
-        fontSize={10}
-        fill="#666"
-        style={{ fontFamily: "ui-monospace, monospace" }}
+    <>
+      <SectionLabel>TM history</SectionLabel>
+      <div
+        style={{
+          background: BP.surface,
+          borderRadius: 16,
+          border: `1px solid ${BP.borderSoft}`,
+          overflow: "hidden",
+        }}
       >
-        {data[0]
-          ? new Date(data[0].date).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })
-          : ""}
-      </text>
-      <text
-        x={w}
-        y={h + 14}
-        fontSize={10}
-        fill="#aaa"
-        textAnchor="end"
-        style={{ fontFamily: "ui-monospace, monospace" }}
-      >
-        {(data[data.length - 1]?.volume ?? 0).toLocaleString()} lb · vol
-      </text>
-    </svg>
+        {visible.length === 0 ? (
+          <div className="p-4 text-sm" style={{ color: BP.textMuted }}>
+            No TM changes yet. Hit an AMRAP top set to trigger a bump.
+          </div>
+        ) : (
+          shown.map((h, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "14px 16px",
+                borderBottom: i < shown.length - 1 ? `1px solid ${BP.borderSoft}` : "none",
+              }}
+            >
+              <Mono style={{ fontSize: 14, fontWeight: 700, color: BP.accent, width: 56 }}>
+                {h.trainingMax} lb
+              </Mono>
+              <div style={{ flex: 1 }}>
+                <div className="text-[13px]" style={{ color: BP.text, fontWeight: 500 }}>
+                  {h.notes ?? h.reason}
+                </div>
+                <Mono style={{ fontSize: 11, color: BP.textDim, marginTop: 2 }}>
+                  {fmtDate(h.effectiveFrom)}
+                </Mono>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+      {visible.length > PREVIEW ? (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            marginTop: 8,
+            width: "100%",
+            height: 36,
+            background: "transparent",
+            border: "none",
+            color: BP.textMuted,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {expanded ? "Show less" : `Show all ${visible.length} changes`}
+        </button>
+      ) : null}
+    </>
   );
 }
+
+// ── Manual TM dialog ─────────────────────────────────────────────────────────
 
 function ManualTmDialog({
   liftName,
@@ -658,40 +784,7 @@ function ManualTmDialog({
   );
 }
 
-function TMChart({ data }: { data: number[] }) {
-  const w = 295;
-  const h = 110;
-  const min = Math.min(...data) - 5;
-  const max = Math.max(...data) + 5;
-  const range = max - min || 1;
-  const step = w / Math.max(1, data.length - 1);
-  const pts = data.map((v, i) => [i * step, h - ((v - min) / range) * h] as const);
-  const path = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
-  const area = `${path} L${w},${h} L0,${h} Z`;
-  return (
-    <svg width="100%" height={h + 24} viewBox={`0 -8 ${w} ${h + 24}`} style={{ marginTop: 10 }}>
-      <defs>
-        <linearGradient id="tmgrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#FF2F2F" stopOpacity="0.35" />
-          <stop offset="1" stopColor="#FF2F2F" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#tmgrad)" />
-      <path d={path} stroke="#FF2F2F" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      {pts.map(([x, y], i) => (
-        <circle
-          key={i}
-          cx={x}
-          cy={y}
-          r={i === pts.length - 1 ? 4 : 2}
-          fill={i === pts.length - 1 ? "#FF2F2F" : "#fff"}
-          stroke="#FF2F2F"
-          strokeWidth={i === pts.length - 1 ? 0 : 1}
-        />
-      ))}
-    </svg>
-  );
-}
+// ── Exercise browser / detail (All tab) ──────────────────────────────────────
 
 function ExerciseBrowser({
   entries,
@@ -814,18 +907,8 @@ function ExerciseBrowser({
 }
 
 function ExerciseDetail({ ex, onBack }: { ex: ExerciseHistory; onBack: () => void }) {
-  const last = ex.lastTrainedAt ? new Date(ex.lastTrainedAt) : null;
-  const ageDays = last
-    ? Math.max(0, Math.floor((Date.now() - last.getTime()) / 86_400_000))
-    : null;
-  const ageLabel =
-    ageDays == null
-      ? "Never"
-      : ageDays === 0
-        ? "today"
-        : ageDays === 1
-          ? "yesterday"
-          : `${ageDays} days ago`;
+  const { stats } = ex;
+  const points = e1rmPoints(stats);
 
   return (
     <div style={{ marginTop: 18 }}>
@@ -848,20 +931,13 @@ function ExerciseDetail({ ex, onBack }: { ex: ExerciseHistory; onBack: () => voi
         ← All exercises
       </button>
       <Eyebrow>{ex.muscleGroup}</Eyebrow>
-      <div
-        style={{
-          fontSize: 24,
-          fontWeight: 700,
-          letterSpacing: "-0.025em",
-          marginTop: 2,
-        }}
-      >
+      <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.025em", marginTop: 2 }}>
         {ex.name}
       </div>
       <div className="flex items-center gap-3 mt-1" style={{ color: BP.textDim, fontSize: 12 }}>
-        <Mono>{ex.totalSets} working sets</Mono>
+        <Mono>{stats.totalSets} working sets</Mono>
         <span>·</span>
-        <Mono>last {ageLabel}</Mono>
+        <Mono>last {ageLabel(stats.lastTrainedAt)}</Mono>
         {ex.equipment ? (
           <>
             <span>·</span>
@@ -870,185 +946,90 @@ function ExerciseDetail({ ex, onBack }: { ex: ExerciseHistory; onBack: () => voi
         ) : null}
       </div>
 
-      <div
-        style={{
-          marginTop: 18,
-          padding: "16px 14px 12px",
-          background: BP.surface,
-          borderRadius: 16,
-          border: `1px solid ${BP.borderSoft}`,
-        }}
-      >
+      <CardShell style={{ marginTop: 18 }}>
         <div className="flex items-baseline justify-between">
-          <Eyebrow>Top set weight</Eyebrow>
+          <Eyebrow>Estimated 1RM</Eyebrow>
           <Mono style={{ fontSize: 11, color: BP.textDim }}>
-            {ex.topSetSeries.length} session{ex.topSetSeries.length === 1 ? "" : "s"}
+            {points.length} session{points.length === 1 ? "" : "s"}
           </Mono>
         </div>
-        {ex.topSetSeries.length >= 2 ? (
-          <TopSetChart data={ex.topSetSeries} />
-        ) : ex.topSetSeries.length === 1 ? (
+        {points.length >= 2 ? (
+          <TrendChart points={points} unit="lb" />
+        ) : stats.bestSet ? (
           <div className="mt-3 text-sm" style={{ color: BP.textMuted }}>
-            One session logged so far. Heaviest:{" "}
+            One session logged. Best:{" "}
             <Mono style={{ color: BP.text, fontWeight: 700 }}>
-              {ex.topSetSeries[0].weight}×{ex.topSetSeries[0].reps}
-            </Mono>
+              {stats.bestSet.weight}×{stats.bestSet.reps}
+            </Mono>{" "}
+            (~{stats.bestSet.e1rm} lb e1RM)
           </div>
         ) : (
           <div className="mt-3 text-sm" style={{ color: BP.textMuted }}>
             No history yet.
           </div>
         )}
-      </div>
+      </CardShell>
 
-      <div style={{ marginTop: 18 }}>
-        <div className="px-0.5 pb-2">
-          <Eyebrow>Rep PRs</Eyebrow>
-        </div>
-        <div
-          style={{
-            background: BP.surface,
-            borderRadius: 16,
-            border: `1px solid ${BP.borderSoft}`,
-            overflow: "hidden",
-          }}
-        >
-          {ex.repPrs.map((row, i) => {
-            const date = row.pr
-              ? new Date(row.pr.completedAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })
-              : null;
-            return (
-              <div
-                key={row.reps}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "12px 14px",
-                  gap: 12,
-                  borderBottom:
-                    i < ex.repPrs.length - 1 ? `1px solid ${BP.borderSoft}` : "none",
-                }}
-              >
+      {stats.weeks.length >= 2 ? (
+        <CardShell style={{ marginTop: 8 }}>
+          <Eyebrow>Weekly tonnage</Eyebrow>
+          <BarChart bars={volumeBars(stats.weeks)} unit="lb" />
+        </CardShell>
+      ) : null}
+
+      <SectionLabel>Rep PRs</SectionLabel>
+      <div
+        style={{
+          background: BP.surface,
+          borderRadius: 16,
+          border: `1px solid ${BP.borderSoft}`,
+          overflow: "hidden",
+        }}
+      >
+        {stats.repPrs.map((row, i) => (
+          <div
+            key={row.reps}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "12px 14px",
+              gap: 12,
+              borderBottom:
+                i < stats.repPrs.length - 1 ? `1px solid ${BP.borderSoft}` : "none",
+            }}
+          >
+            <Mono style={{ width: 44, fontSize: 13, fontWeight: 700, color: BP.textDim }}>
+              ≥ {row.reps}
+            </Mono>
+            {row.pr ? (
+              <>
                 <Mono
                   style={{
-                    width: 44,
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: BP.textDim,
+                    fontSize: 18,
+                    fontWeight: 800,
+                    letterSpacing: "-0.02em",
+                    color: BP.text,
                   }}
                 >
-                  ≥ {row.reps}
-                </Mono>
-                {row.pr ? (
-                  <>
-                    <Mono
-                      style={{
-                        fontSize: 18,
-                        fontWeight: 800,
-                        letterSpacing: "-0.02em",
-                        color: BP.text,
-                      }}
-                    >
-                      {row.pr.weight}
-                      <span style={{ fontSize: 11, color: BP.textDim, fontWeight: 500 }}>
-                        {" "}
-                        × {row.pr.reps}
-                      </span>
-                    </Mono>
-                    <div style={{ flex: 1 }} />
-                    <Mono style={{ fontSize: 11, color: BP.textDim }}>{date}</Mono>
-                  </>
-                ) : (
-                  <span className="text-[13px]" style={{ color: BP.textDim }}>
-                    —
+                  {row.pr.weight}
+                  <span style={{ fontSize: 11, color: BP.textDim, fontWeight: 500 }}>
+                    {" "}
+                    × {row.pr.reps}
                   </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                </Mono>
+                <div style={{ flex: 1 }} />
+                <Mono style={{ fontSize: 11, color: BP.textDim }}>
+                  {fmtDate(row.pr.completedAt)}
+                </Mono>
+              </>
+            ) : (
+              <span className="text-[13px]" style={{ color: BP.textDim }}>
+                —
+              </span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
-  );
-}
-
-function TopSetChart({
-  data,
-}: {
-  data: Array<{ date: string; weight: number; reps: number }>;
-}) {
-  const w = 295;
-  const h = 130;
-  const weights = data.map((d) => d.weight);
-  const min = Math.min(...weights) - 5;
-  const max = Math.max(...weights) + 5;
-  const range = max - min || 1;
-  const step = w / Math.max(1, data.length - 1);
-  const pts = data.map(
-    (d, i) => [i * step, h - ((d.weight - min) / range) * h] as const,
-  );
-  const path = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
-  const area = `${path} L${w},${h} L0,${h} Z`;
-  return (
-    <svg
-      width="100%"
-      height={h + 28}
-      viewBox={`0 -8 ${w} ${h + 28}`}
-      style={{ marginTop: 10, display: "block" }}
-    >
-      <defs>
-        <linearGradient id="topsetgrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#FF2F2F" stopOpacity="0.32" />
-          <stop offset="1" stopColor="#FF2F2F" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#topsetgrad)" />
-      <path
-        d={path}
-        stroke="#FF2F2F"
-        strokeWidth="2"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {pts.map(([x, y], i) => (
-        <circle
-          key={i}
-          cx={x}
-          cy={y}
-          r={i === pts.length - 1 ? 4 : 2}
-          fill={i === pts.length - 1 ? "#FF2F2F" : "#fff"}
-          stroke="#FF2F2F"
-          strokeWidth={i === pts.length - 1 ? 0 : 1}
-        />
-      ))}
-      <text
-        x={0}
-        y={h + 18}
-        fontSize={10}
-        fill="#666"
-        style={{ fontFamily: "ui-monospace, monospace" }}
-      >
-        {data[0]
-          ? new Date(data[0].date).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })
-          : ""}
-      </text>
-      <text
-        x={w}
-        y={h + 18}
-        fontSize={10}
-        fill="#aaa"
-        textAnchor="end"
-        style={{ fontFamily: "ui-monospace, monospace" }}
-      >
-        {data[data.length - 1]?.weight} lb × {data[data.length - 1]?.reps}
-      </text>
-    </svg>
   );
 }
