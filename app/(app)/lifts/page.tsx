@@ -6,7 +6,6 @@ import {
   lifts as liftsTable,
   programDays as programDaysTable,
   sessionExercises,
-  tmHistory,
   workoutSessions,
   workoutSets,
 } from "@/lib/db/schema";
@@ -199,59 +198,37 @@ export default async function LiftsPage({
     .where(inArray(liftsTable.name, SHOWN_LIFTS as readonly ShownLiftName[]));
   const liftIds = liftRows.map((l) => l.id);
 
-  // Two batched queries replace the old per-lift N+1 loop.
-  const [tmRows, setRows] = await Promise.all([
-    liftIds.length
-      ? db
-          .select()
-          .from(tmHistory)
-          .where(inArray(tmHistory.liftId, liftIds))
-          .orderBy(desc(tmHistory.effectiveFrom))
-      : Promise.resolve([]),
-    liftIds.length
-      ? db
-          .select({
-            liftId: sessionExercises.liftId,
-            weightUsed: workoutSets.weightUsed,
-            repsCompleted: workoutSets.repsCompleted,
-            isWarmup: workoutSets.isWarmup,
-            isAmrap: workoutSets.isAmrap,
-            completedAt: workoutSets.completedAt,
-            sessionId: workoutSets.sessionId,
-          })
-          .from(workoutSets)
-          .innerJoin(sessionExercises, eq(workoutSets.sessionExerciseId, sessionExercises.id))
-          .innerJoin(workoutSessions, eq(workoutSets.sessionId, workoutSessions.id))
-          .where(
-            and(
-              inArray(sessionExercises.liftId, liftIds),
-              isNotNull(workoutSessions.completedAt),
-              isNotNull(workoutSets.repsCompleted),
-              isNotNull(workoutSets.weightUsed),
-            ),
-          )
-      : Promise.resolve([]),
-  ]);
+  // One batched query replaces the old per-lift N+1 loop. Training-max
+  // history is intentionally not read here — TM lives in Settings.
+  const setRows = liftIds.length
+    ? await db
+        .select({
+          liftId: sessionExercises.liftId,
+          weightUsed: workoutSets.weightUsed,
+          repsCompleted: workoutSets.repsCompleted,
+          isWarmup: workoutSets.isWarmup,
+          isAmrap: workoutSets.isAmrap,
+          completedAt: workoutSets.completedAt,
+          sessionId: workoutSets.sessionId,
+        })
+        .from(workoutSets)
+        .innerJoin(sessionExercises, eq(workoutSets.sessionExerciseId, sessionExercises.id))
+        .innerJoin(workoutSessions, eq(workoutSets.sessionId, workoutSessions.id))
+        .where(
+          and(
+            inArray(sessionExercises.liftId, liftIds),
+            isNotNull(workoutSessions.completedAt),
+            isNotNull(workoutSets.repsCompleted),
+            isNotNull(workoutSets.weightUsed),
+          ),
+        )
+    : [];
 
   const summaries: LiftSummary[] = liftRows
     .map((lift): LiftSummary => {
       const sets = setRows.filter((s) => s.liftId === lift.id).map(toStatSet);
       const stats: LiftStats = computeLiftStats(sets, tz, now);
-      return {
-        name: lift.name,
-        currentOneRm: lift.currentOneRm,
-        trainingMax: lift.trainingMax,
-        stats,
-        history: tmRows
-          .filter((h) => h.liftId === lift.id)
-          .map((h) => ({
-            trainingMax: h.trainingMax,
-            effectiveFrom: (h.effectiveFrom as Date).toISOString(),
-            reason: h.reason,
-            amrapReps: h.amrapReps,
-            notes: h.notes,
-          })),
-      };
+      return { name: lift.name, stats };
     })
     .sort(
       (a, b) =>

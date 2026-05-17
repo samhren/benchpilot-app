@@ -1,15 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BP, BigButton, Eyebrow, Mono, Pill, StatCard } from "@/components/ui/primitives";
+import { BP, Eyebrow, Mono, Pill, StatCard } from "@/components/ui/primitives";
 import { BarChart, TrendChart, type Bar, type TrendPoint } from "@/components/ui/charts";
-import { manualSetTmAction } from "@/app/actions";
-import { toast } from "sonner";
 import type { LiftStats, WeekBucket } from "@/lib/lift-stats";
 
 type TabId = "bench_press" | "back_squat" | "all" | "history";
-type LiftName = "bench_press" | "back_squat";
 
 // Session-type → accent colour, mirroring the Program page.
 const SESSION_COLORS: Record<string, string> = {
@@ -36,20 +33,9 @@ export interface ExerciseHistory {
   stats: LiftStats;
 }
 
-export interface TmEvent {
-  trainingMax: number;
-  effectiveFrom: string;
-  reason: string;
-  amrapReps: number | null;
-  notes: string | null;
-}
-
 export interface LiftSummary {
   name: string;
-  currentOneRm: number | null;
-  trainingMax: number | null;
   stats: LiftStats;
-  history: TmEvent[];
 }
 
 export interface ProgramContext {
@@ -186,7 +172,6 @@ export default function LiftsClient({
     if (selectedExerciseId) return "all";
     return TABS.find((t) => t.id === initial)?.id ?? "bench_press";
   });
-  const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState("");
 
   const lift = useMemo(
@@ -277,60 +262,10 @@ export default function LiftsClient({
 
       {lift ? (
         <>
-          <TmHeadline lift={lift} />
-          <StrengthSection lift={lift} />
+          <StrengthSection stats={lift.stats} />
           <VolumeSection stats={lift.stats} />
           <ConsistencySection stats={lift.stats} program={program} />
-          <TmHistory history={lift.history} />
-
-          <div className="mt-4">
-            <BigButton
-              kind="ghost"
-              height={52}
-              onClick={() => setEditing(true)}
-              data-testid="manual-tm-btn"
-            >
-              Manually adjust TM
-            </BigButton>
-          </div>
         </>
-      ) : null}
-
-      {editing && lift ? (
-        <ManualTmDialog
-          liftName={lift.name as LiftName}
-          currentTm={lift.trainingMax ?? 0}
-          onClose={() => setEditing(false)}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-// ── TM headline ──────────────────────────────────────────────────────────────
-
-function TmHeadline({ lift }: { lift: LiftSummary }) {
-  return (
-    <div style={{ marginTop: 22 }}>
-      <Eyebrow>Current TM</Eyebrow>
-      <div className="flex items-baseline gap-2 mt-1.5">
-        <Mono
-          style={{
-            fontSize: 64,
-            fontWeight: 800,
-            letterSpacing: "-0.04em",
-            lineHeight: 0.95,
-          }}
-          data-testid="current-tm"
-        >
-          {lift.trainingMax ?? "—"}
-        </Mono>
-        <Mono style={{ fontSize: 18, color: BP.textDim, fontWeight: 500 }}>lb</Mono>
-      </div>
-      {lift.currentOneRm ? (
-        <div className="text-sm mt-1" style={{ color: BP.textMuted }}>
-          from declared 1RM <Mono>{lift.currentOneRm}</Mono> lb · TM = 90%
-        </div>
       ) : null}
     </div>
   );
@@ -338,19 +273,8 @@ function TmHeadline({ lift }: { lift: LiftSummary }) {
 
 // ── Strength ─────────────────────────────────────────────────────────────────
 
-function StrengthSection({ lift }: { lift: LiftSummary }) {
-  const { stats } = lift;
+function StrengthSection({ stats }: { stats: LiftStats }) {
   const best = stats.bestSet;
-
-  const tmSteps = useMemo(
-    () =>
-      lift.history
-        .map((h) => ({ t: new Date(h.effectiveFrom).getTime(), v: h.trainingMax }))
-        .filter((s) => s.v > 0)
-        .sort((a, b) => a.t - b.t),
-    [lift.history],
-  );
-
   const points = e1rmPoints(stats);
   const trend =
     stats.currentE1rm != null && stats.startE1rm != null
@@ -390,9 +314,9 @@ function StrengthSection({ lift }: { lift: LiftSummary }) {
             </div>
             {points.length >= 2 ? (
               <div style={{ marginTop: 10 }}>
-                <TrendChart points={points} steps={tmSteps} unit="lb" testId="e1rm-chart" />
+                <TrendChart points={points} unit="lb" testId="e1rm-chart" />
                 <Mono style={{ fontSize: 10, color: BP.textDim }}>
-                  ● e1RM per session · ┄ training max
+                  ● estimated 1RM per session
                 </Mono>
               </div>
             ) : (
@@ -637,210 +561,6 @@ function RatioBar({ done, total }: { done: number; total: number }) {
       }}
     >
       <div style={{ width: `${pct}%`, height: "100%", background: BP.accent }} />
-    </div>
-  );
-}
-
-// ── TM history ───────────────────────────────────────────────────────────────
-
-function TmHistory({ history }: { history: TmEvent[] }) {
-  const visible = useMemo(() => history.filter((r) => r.reason !== "initial"), [history]);
-  const [expanded, setExpanded] = useState(false);
-  const PREVIEW = 3;
-  const shown = expanded ? visible : visible.slice(0, PREVIEW);
-
-  return (
-    <>
-      <SectionLabel>TM history</SectionLabel>
-      <div
-        style={{
-          background: BP.surface,
-          borderRadius: 16,
-          border: `1px solid ${BP.borderSoft}`,
-          overflow: "hidden",
-        }}
-      >
-        {visible.length === 0 ? (
-          <div className="p-4 text-sm" style={{ color: BP.textMuted }}>
-            No TM changes yet. Hit an AMRAP top set to trigger a bump.
-          </div>
-        ) : (
-          shown.map((h, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 14,
-                padding: "14px 16px",
-                borderBottom: i < shown.length - 1 ? `1px solid ${BP.borderSoft}` : "none",
-              }}
-            >
-              <Mono style={{ fontSize: 14, fontWeight: 700, color: BP.accent, width: 56 }}>
-                {h.trainingMax} lb
-              </Mono>
-              <div style={{ flex: 1 }}>
-                <div className="text-[13px]" style={{ color: BP.text, fontWeight: 500 }}>
-                  {h.notes ?? h.reason}
-                </div>
-                <Mono style={{ fontSize: 11, color: BP.textDim, marginTop: 2 }}>
-                  {fmtDate(h.effectiveFrom)}
-                </Mono>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      {visible.length > PREVIEW ? (
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          style={{
-            marginTop: 8,
-            width: "100%",
-            height: 36,
-            background: "transparent",
-            border: "none",
-            color: BP.textMuted,
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          {expanded ? "Show less" : `Show all ${visible.length} changes`}
-        </button>
-      ) : null}
-    </>
-  );
-}
-
-// ── Manual TM dialog ─────────────────────────────────────────────────────────
-
-function ManualTmDialog({
-  liftName,
-  currentTm,
-  onClose,
-}: {
-  liftName: LiftName;
-  currentTm: number;
-  onClose: () => void;
-}) {
-  const [tm, setTm] = useState(currentTm || 0);
-  const [pending, start] = useTransition();
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        background: "rgba(0,0,0,0.6)",
-        backdropFilter: "blur(8px)",
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: "absolute",
-          left: 16,
-          right: 16,
-          bottom: 36,
-          maxWidth: 388,
-          margin: "0 auto",
-          background: "#1a1a1a",
-          borderRadius: 24,
-          padding: 24,
-          border: `1px solid ${BP.border}`,
-        }}
-      >
-        <div
-          style={{
-            width: 36,
-            height: 4,
-            borderRadius: 2,
-            background: "#444",
-            margin: "0 auto 18px",
-          }}
-        />
-        <Eyebrow>Adjust TM</Eyebrow>
-        <div className="text-[22px] font-bold tracking-[-0.02em] mt-1.5">
-          Manual {liftName.replace("_", " ")}
-        </div>
-        <div className="text-sm mt-2.5 leading-snug" style={{ color: BP.textMuted }}>
-          BenchPilot bumps your TM automatically based on AMRAP performance. Manual edits skip the rule.
-        </div>
-        <div
-          style={{
-            marginTop: 18,
-            padding: 16,
-            background: "#0d0d0d",
-            borderRadius: 14,
-            display: "flex",
-            alignItems: "center",
-            gap: 16,
-          }}
-        >
-          <button
-            onClick={() => setTm((v) => Math.max(0, v - 5))}
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              border: `1px solid ${BP.border}`,
-              background: "transparent",
-              color: BP.text,
-              fontSize: 20,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            −
-          </button>
-          <div style={{ flex: 1, textAlign: "center" }}>
-            <Mono style={{ fontSize: 36, fontWeight: 800, letterSpacing: "-0.03em" }}>{tm}</Mono>
-            <Mono style={{ fontSize: 13, color: BP.textDim, marginLeft: 4 }}>lb</Mono>
-          </div>
-          <button
-            onClick={() => setTm((v) => v + 5)}
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              border: `1px solid ${BP.border}`,
-              background: "transparent",
-              color: BP.text,
-              fontSize: 20,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            ＋
-          </button>
-        </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-          <BigButton kind="dark" height={56} style={{ flex: 1 }} onClick={onClose}>
-            Cancel
-          </BigButton>
-          <BigButton
-            kind="primary"
-            height={56}
-            style={{ flex: 1.4 }}
-            disabled={pending || tm <= 0}
-            onClick={() =>
-              start(async () => {
-                const r = await manualSetTmAction({ liftName, trainingMax: tm });
-                if (r.ok) {
-                  toast.success("TM updated");
-                  onClose();
-                } else {
-                  toast.error("Failed");
-                }
-              })
-            }
-          >
-            Save TM
-          </BigButton>
-        </div>
-      </div>
     </div>
   );
 }

@@ -171,7 +171,8 @@ function OneRmRow({
         <div className="text-[15px] font-medium">{label}</div>
         {trainingMax != null ? (
           <div className="text-[12px] mt-0.5" style={{ color: BP.textDim }}>
-            1RM <Mono>{oneRm ?? "—"}</Mono> · TM <Mono>{trainingMax}</Mono> lb
+            1RM <Mono>{oneRm ?? "—"}</Mono> · TM{" "}
+            <Mono data-testid={`tm-${liftName}`}>{trainingMax}</Mono> lb
           </div>
         ) : (
           <div className="text-[12px] mt-0.5" style={{ color: BP.textDim }}>

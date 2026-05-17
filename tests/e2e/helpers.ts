@@ -17,8 +17,9 @@ export async function setBenchOneRm(page: Page, oneRm: number) {
   await page.getByTestId("onerm-save-bench_press").click();
   // Wait for the input to disappear (editing → false happens after the action completes)
   await expect(input).toBeHidden({ timeout: 10_000 });
-  // Verify TM displayed on lifts page
+  // Verify the derived TM on the settings row (TM lives in Settings now)
   const expectedTm = resolveTrainingMax(oneRm);
-  await page.goto("/lifts?l=bench_press");
-  await expect(page.getByTestId("current-tm")).toHaveText(String(expectedTm), { timeout: 10_000 });
+  await expect(page.getByTestId("tm-bench_press")).toHaveText(String(expectedTm), {
+    timeout: 10_000,
+  });
 }

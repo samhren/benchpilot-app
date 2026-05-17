@@ -31,9 +31,9 @@ test("AMRAP +10 bump: 12 reps at 80% TM → TM 205 → 215", async ({ page }) =>
   // Wait for the toast confirmation that bump applied
   await expect(page.getByText(/Bench TM → 215 lb/)).toBeVisible({ timeout: 10_000 });
 
-  // Verify TM updated on lifts page
-  await page.goto("/lifts?l=bench_press");
-  await expect(page.getByTestId("current-tm")).toHaveText("215");
+  // Verify TM updated on the settings page
+  await page.goto("/settings");
+  await expect(page.getByTestId("tm-bench_press")).toHaveText("215", { timeout: 10_000 });
 });
 
 test("AMRAP hold: 6 reps → no bump, TM stays 205", async ({ page }) => {
@@ -56,6 +56,6 @@ test("AMRAP hold: 6 reps → no bump, TM stays 205", async ({ page }) => {
   // Wait for toast confirming TM held (no bump)
   await expect(page.getByText(/TM held/)).toBeVisible({ timeout: 10_000 });
 
-  await page.goto("/lifts?l=bench_press");
-  await expect(page.getByTestId("current-tm")).toHaveText("205");
+  await page.goto("/settings");
+  await expect(page.getByTestId("tm-bench_press")).toHaveText("205", { timeout: 10_000 });
 });
