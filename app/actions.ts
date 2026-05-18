@@ -17,7 +17,7 @@ import {
   workoutSessions,
   workoutSets,
 } from "@/lib/db/schema";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { resolveTrainingMax, resolveBenchPrescription } from "@/lib/programming/training-max";
 import { applyAmrapBump } from "@/lib/programming/amrap";
 import { isoDate } from "@/lib/program-state";
@@ -196,6 +196,34 @@ export async function startSessionAction(
   return { ok: true as const, sessionId: created.id };
 }
 
+// The most recent note the user wrote for each of `exerciseIds`, taken from
+// their last session that included it. Lets exercise notes carry forward
+// session-to-session until the user changes them. A returned value of `null`
+// means the last occurrence had its note cleared — still carried. Exercises
+// absent from the map have never been done before.
+async function latestNotesByExercise(
+  userId: string,
+  exerciseIds: string[],
+  excludeSessionId?: string,
+): Promise<Map<string, string | null>> {
+  if (exerciseIds.length === 0) return new Map();
+  const conds = [
+    eq(sessionExercises.userId, userId),
+    inArray(sessionExercises.exerciseId, exerciseIds),
+  ];
+  if (excludeSessionId) conds.push(ne(sessionExercises.sessionId, excludeSessionId));
+  const rows = await db
+    .selectDistinctOn([sessionExercises.exerciseId], {
+      exerciseId: sessionExercises.exerciseId,
+      notes: sessionExercises.notes,
+    })
+    .from(sessionExercises)
+    .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+    .where(and(...conds))
+    .orderBy(sessionExercises.exerciseId, desc(workoutSessions.startedAt));
+  return new Map(rows.map((r) => [r.exerciseId, r.notes]));
+}
+
 async function rebuildSnapshot(
   userId: string,
   sessionId: string,
@@ -218,6 +246,13 @@ async function rebuildSnapshot(
   const benchTm = benchLift[0]?.trainingMax ?? null;
 
   if (!tmplRows.length) return;
+
+  // Carry each exercise's note forward from the user's last session.
+  const noteMap = await latestNotesByExercise(
+    userId,
+    tmplRows.map((pe) => pe.exerciseId),
+    sessionId,
+  );
 
   await db.insert(sessionExercises).values(
     tmplRows.map((pe) => {
@@ -246,7 +281,9 @@ async function rebuildSnapshot(
         liftId: pe.liftId,
         wavePlan: wavePlan as never,
         isAmrapTopSet: pe.isAmrapTopSet,
-        notes: pe.notes,
+        // The user's carried-forward note, or the program default if the
+        // exercise has never been done before.
+        notes: noteMap.has(pe.exerciseId) ? noteMap.get(pe.exerciseId)! : pe.notes,
       };
     }),
   );
@@ -527,6 +564,13 @@ export async function startExtraSessionAction(input: z.infer<typeof StartExtraSc
     })
     .returning();
 
+  // Carry each exercise's note forward from the user's last session.
+  const noteMap = await latestNotesByExercise(
+    userId,
+    exs.map((e) => e.exerciseId),
+    created.id,
+  );
+
   await db.insert(sessionExercises).values(
     exs.map((e, i) => ({
       userId,
@@ -539,6 +583,7 @@ export async function startExtraSessionAction(input: z.infer<typeof StartExtraSc
       reps: e.reps,
       rirTarget: e.rirTarget ?? 1,
       isAmrapTopSet: false,
+      notes: noteMap.get(e.exerciseId) ?? null,
     })),
   );
 
