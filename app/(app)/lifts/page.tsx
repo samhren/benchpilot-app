@@ -13,6 +13,7 @@ import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { getActiveProgram, getAllProgramDays, getSettings } from "@/lib/queries";
 import { computeProgramWeek, isoDate, scheduledDateForDay } from "@/lib/program-state";
 import { computeLiftStats, type LiftStats, type StatSet } from "@/lib/lift-stats";
+import { requireUserId } from "@/lib/auth";
 import LiftsClient, {
   type ExerciseEntry,
   type ExerciseHistory,
@@ -45,6 +46,7 @@ function toStatSet(r: {
 }
 
 async function buildExerciseHistory(
+  userId: string,
   exerciseId: string,
   tz: string,
 ): Promise<ExerciseHistory | null> {
@@ -68,6 +70,7 @@ async function buildExerciseHistory(
     .innerJoin(workoutSessions, eq(workoutSets.sessionId, workoutSessions.id))
     .where(
       and(
+        eq(workoutSets.userId, userId),
         eq(workoutSets.exerciseId, exerciseId),
         isNotNull(workoutSessions.completedAt),
         isNotNull(workoutSets.repsCompleted),
@@ -85,7 +88,7 @@ async function buildExerciseHistory(
 }
 
 // Every completed workout, newest first — the History tab list.
-async function buildSessionList(): Promise<SessionListItem[]> {
+async function buildSessionList(userId: string): Promise<SessionListItem[]> {
   const rows = await db
     .select({
       id: workoutSessions.id,
@@ -98,7 +101,7 @@ async function buildSessionList(): Promise<SessionListItem[]> {
     .from(workoutSessions)
     .leftJoin(programDaysTable, eq(workoutSessions.programDayId, programDaysTable.id))
     .leftJoin(workoutSets, eq(workoutSets.sessionId, workoutSessions.id))
-    .where(isNotNull(workoutSessions.completedAt))
+    .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.completedAt)))
     .groupBy(workoutSessions.id, programDaysTable.id)
     .orderBy(desc(workoutSessions.completedAt))
     .limit(80);
@@ -113,7 +116,7 @@ async function buildSessionList(): Promise<SessionListItem[]> {
 }
 
 // One completed workout, broken out exercise-by-exercise with every set.
-async function buildSessionDetail(sessionId: string): Promise<SessionDetail | null> {
+async function buildSessionDetail(userId: string, sessionId: string): Promise<SessionDetail | null> {
   const [header] = await db
     .select({
       id: workoutSessions.id,
@@ -126,7 +129,7 @@ async function buildSessionDetail(sessionId: string): Promise<SessionDetail | nu
     })
     .from(workoutSessions)
     .leftJoin(programDaysTable, eq(workoutSessions.programDayId, programDaysTable.id))
-    .where(eq(workoutSessions.id, sessionId))
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)))
     .limit(1);
   if (!header || !header.completedAt) return null;
 
@@ -146,7 +149,7 @@ async function buildSessionDetail(sessionId: string): Promise<SessionDetail | nu
     .from(workoutSets)
     .innerJoin(exercisesTable, eq(workoutSets.exerciseId, exercisesTable.id))
     .leftJoin(sessionExercises, eq(workoutSets.sessionExerciseId, sessionExercises.id))
-    .where(eq(workoutSets.sessionId, sessionId))
+    .where(and(eq(workoutSets.sessionId, sessionId), eq(workoutSets.userId, userId)))
     .orderBy(asc(sessionExercises.orderIndex), asc(workoutSets.setNumber));
 
   const byExercise = new Map<string, SessionDetail["exercises"][number]>();
@@ -187,6 +190,7 @@ export default async function LiftsPage({
 }) {
   const { l, ex, session } = await searchParams;
   const initial = (l as string | undefined) ?? "bench_press";
+  const userId = await requireUserId();
 
   const [settingsRow, program] = await Promise.all([getSettings(), getActiveProgram()]);
   const tz = settingsRow?.timezone ?? "UTC";
@@ -195,7 +199,12 @@ export default async function LiftsPage({
   const liftRows = await db
     .select()
     .from(liftsTable)
-    .where(inArray(liftsTable.name, SHOWN_LIFTS as readonly ShownLiftName[]));
+    .where(
+      and(
+        eq(liftsTable.userId, userId),
+        inArray(liftsTable.name, SHOWN_LIFTS as readonly ShownLiftName[]),
+      ),
+    );
   const liftIds = liftRows.map((l) => l.id);
 
   // One batched query replaces the old per-lift N+1 loop. Training-max
@@ -216,6 +225,7 @@ export default async function LiftsPage({
         .innerJoin(workoutSessions, eq(workoutSets.sessionId, workoutSessions.id))
         .where(
           and(
+            eq(workoutSets.userId, userId),
             inArray(sessionExercises.liftId, liftIds),
             isNotNull(workoutSessions.completedAt),
             isNotNull(workoutSets.repsCompleted),
@@ -244,7 +254,7 @@ export default async function LiftsPage({
       db
         .select({ programDayId: workoutSessions.programDayId })
         .from(workoutSessions)
-        .where(isNotNull(workoutSessions.completedAt)),
+        .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.completedAt))),
     ]);
     const completedDayIds = new Set(
       completedRows.map((r) => r.programDayId).filter((id): id is string => !!id),
@@ -279,9 +289,9 @@ export default async function LiftsPage({
   const exerciseEntries: ExerciseEntry[] = allExercises;
 
   const [selectedExercise, sessionList, selectedSession] = await Promise.all([
-    ex ? buildExerciseHistory(ex, tz) : Promise.resolve(null),
-    buildSessionList(),
-    session ? buildSessionDetail(session) : Promise.resolve(null),
+    ex ? buildExerciseHistory(userId, ex, tz) : Promise.resolve(null),
+    buildSessionList(userId),
+    session ? buildSessionDetail(userId, session) : Promise.resolve(null),
   ]);
 
   return (

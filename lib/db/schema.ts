@@ -11,6 +11,7 @@ import {
   real,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -73,15 +74,39 @@ export const dayStatusStateEnum = pgEnum("day_status_state", [
   "skipped",
 ]);
 
-export const lifts = pgTable("lifts", {
+// Each account is identified solely by a PIN. `pinHash` is an HMAC of the PIN
+// (peppered with SESSION_SECRET) so a DB leak doesn't expose raw PINs, and so
+// login can look the user up by a single equality match.
+export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
-  name: liftNameEnum("name").notNull().unique(),
-  currentOneRm: real("current_1rm"),
-  trainingMax: real("training_max"),
-  lastTmBumpAt: timestamp("last_tm_bump_at", { withTimezone: true }),
+  pinHash: text("pin_hash").notNull().unique(),
+  name: text("name"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// NOTE on `userId` columns below: they are intentionally nullable at the DB
+// level. This keeps `drizzle-kit push` safe to run against the pre-migration
+// production database (existing rows have no user yet). The application always
+// populates `userId` on insert and always filters by it on read — see
+// lib/queries.ts and app/actions.ts. The migrate-multi-user script backfills
+// every existing row before the new code is deployed.
+
+export const lifts = pgTable(
+  "lifts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    name: liftNameEnum("name").notNull(),
+    currentOneRm: real("current_1rm"),
+    trainingMax: real("training_max"),
+    lastTmBumpAt: timestamp("last_tm_bump_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    userNameUq: unique("lifts_user_name_uq").on(t.userId, t.name),
+  }),
+);
 
 export const exercises = pgTable("exercises", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -93,21 +118,29 @@ export const exercises = pgTable("exercises", {
   notes: text("notes"),
 });
 
-export const programs = pgTable("programs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  startDate: date("start_date").notNull(),
-  totalWeeks: integer("total_weeks").default(14).notNull(),
-  currentWeek: integer("current_week").default(1).notNull(),
-  currentBlock: text("current_block").default("1").notNull(),
-  status: programStatusEnum("status").default("active").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const programs = pgTable(
+  "programs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    startDate: date("start_date").notNull(),
+    totalWeeks: integer("total_weeks").default(14).notNull(),
+    currentWeek: integer("current_week").default(1).notNull(),
+    currentBlock: text("current_block").default("1").notNull(),
+    status: programStatusEnum("status").default("active").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    userIdx: index("programs_user_idx").on(t.userId),
+  }),
+);
 
 export const programDays = pgTable(
   "program_days",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     programId: uuid("program_id").notNull().references(() => programs.id, { onDelete: "cascade" }),
     weekNumber: integer("week_number").notNull(),
     dayOfWeek: integer("day_of_week").notNull(),
@@ -121,6 +154,7 @@ export const programDays = pgTable(
 
 export const programExercises = pgTable("program_exercises", {
   id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   programDayId: uuid("program_day_id")
     .notNull()
     .references(() => programDays.id, { onDelete: "cascade" }),
@@ -142,6 +176,7 @@ export const workoutSessions = pgTable(
   "workout_sessions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     programDayId: uuid("program_day_id").references(() => programDays.id),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
     firstSetAt: timestamp("first_set_at", { withTimezone: true }),
@@ -155,6 +190,7 @@ export const workoutSessions = pgTable(
   },
   (t) => ({
     startedIdx: index("workout_sessions_started_idx").on(t.startedAt),
+    userIdx: index("workout_sessions_user_idx").on(t.userId),
   }),
 );
 
@@ -162,6 +198,7 @@ export const sessionExercises = pgTable(
   "session_exercises",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     sessionId: uuid("session_id")
       .notNull()
       .references(() => workoutSessions.id, { onDelete: "cascade" }),
@@ -188,6 +225,7 @@ export const sessionExercises = pgTable(
 
 export const dayStatus = pgTable("day_status", {
   id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   programDayId: uuid("program_day_id")
     .notNull()
     .references(() => programDays.id, { onDelete: "cascade" })
@@ -201,6 +239,7 @@ export const workoutSets = pgTable(
   "workout_sets",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     sessionId: uuid("session_id")
       .notNull()
       .references(() => workoutSessions.id, { onDelete: "cascade" }),
@@ -221,17 +260,26 @@ export const workoutSets = pgTable(
   },
   (t) => ({
     sessionIdx: index("workout_sets_session_idx").on(t.sessionId),
+    exerciseIdx: index("workout_sets_exercise_idx").on(t.userId, t.exerciseId),
   }),
 );
 
-export const bodyWeightLogs = pgTable("body_weight_logs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  date: date("date").notNull(),
-  weightLb: real("weight_lb").notNull(),
-});
+export const bodyWeightLogs = pgTable(
+  "body_weight_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    weightLb: real("weight_lb").notNull(),
+  },
+  (t) => ({
+    userDateIdx: index("body_weight_logs_user_date_idx").on(t.userId, t.date),
+  }),
+);
 
 export const tmHistory = pgTable("tm_history", {
   id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   liftId: uuid("lift_id").notNull().references(() => lifts.id, { onDelete: "cascade" }),
   trainingMax: real("training_max").notNull(),
   effectiveFrom: timestamp("effective_from", { withTimezone: true }).defaultNow().notNull(),
@@ -240,9 +288,10 @@ export const tmHistory = pgTable("tm_history", {
   notes: text("notes"),
 });
 
-// Settings (single row)
+// Settings — one row per user.
 export const settings = pgTable("settings", {
   id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   units: text("units").default("lb").notNull(),
   timezone: text("timezone").default("UTC").notNull(),
   defaultRestMainSec: integer("default_rest_main_sec").default(180).notNull(),

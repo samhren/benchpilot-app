@@ -8,6 +8,7 @@ import {
   dayStatus,
   exercises,
   lifts,
+  programDays,
   programExercises,
   programs,
   sessionExercises,
@@ -20,25 +21,34 @@ import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { resolveTrainingMax, resolveBenchPrescription } from "@/lib/programming/training-max";
 import { applyAmrapBump } from "@/lib/programming/amrap";
 import { isoDate } from "@/lib/program-state";
+import { requireUserId } from "@/lib/auth";
 
-async function getTimezone(): Promise<string> {
-  const [s] = await db.select().from(settings).limit(1);
+// Every mutation is scoped to the signed-in user: inserts carry their userId,
+// and updates/deletes are constrained by it so a guessed row id from another
+// account can never be read or written.
+
+async function getTimezone(userId: string): Promise<string> {
+  const [s] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
   return s?.timezone ?? "UTC";
 }
 
 export async function logBodyWeightAction(weightLb: number) {
+  const userId = await requireUserId();
   const v = z.number().positive().parse(weightLb);
-  const tz = await getTimezone();
+  const tz = await getTimezone(userId);
   const today = isoDate(new Date(), tz);
   const [existing] = await db
     .select()
     .from(bodyWeightLogs)
-    .where(eq(bodyWeightLogs.date, today))
+    .where(and(eq(bodyWeightLogs.userId, userId), eq(bodyWeightLogs.date, today)))
     .limit(1);
   if (existing) {
-    await db.update(bodyWeightLogs).set({ weightLb: v }).where(eq(bodyWeightLogs.id, existing.id));
+    await db
+      .update(bodyWeightLogs)
+      .set({ weightLb: v })
+      .where(and(eq(bodyWeightLogs.id, existing.id), eq(bodyWeightLogs.userId, userId)));
   } else {
-    await db.insert(bodyWeightLogs).values({ date: today, weightLb: v });
+    await db.insert(bodyWeightLogs).values({ userId, date: today, weightLb: v });
   }
   revalidatePath("/");
   revalidatePath("/settings");
@@ -51,17 +61,23 @@ const SetOneRmSchema = z.object({
 });
 
 export async function setLiftOneRmAction(input: z.infer<typeof SetOneRmSchema>) {
+  const userId = await requireUserId();
   const { liftName, oneRm } = SetOneRmSchema.parse(input);
-  const [lift] = await db.select().from(lifts).where(eq(lifts.name, liftName)).limit(1);
+  const [lift] = await db
+    .select()
+    .from(lifts)
+    .where(and(eq(lifts.userId, userId), eq(lifts.name, liftName)))
+    .limit(1);
   if (!lift) return { ok: false as const, error: "Lift not found" };
 
   const tm = resolveTrainingMax(oneRm);
   await db
     .update(lifts)
     .set({ currentOneRm: oneRm, trainingMax: tm, updatedAt: new Date() })
-    .where(eq(lifts.id, lift.id));
+    .where(and(eq(lifts.id, lift.id), eq(lifts.userId, userId)));
 
   await db.insert(tmHistory).values({
+    userId,
     liftId: lift.id,
     trainingMax: tm,
     reason: "initial",
@@ -78,16 +94,22 @@ const ManualTmSchema = z.object({
 });
 
 export async function manualSetTmAction(input: z.infer<typeof ManualTmSchema>) {
+  const userId = await requireUserId();
   const { liftName, trainingMax } = ManualTmSchema.parse(input);
-  const [lift] = await db.select().from(lifts).where(eq(lifts.name, liftName)).limit(1);
+  const [lift] = await db
+    .select()
+    .from(lifts)
+    .where(and(eq(lifts.userId, userId), eq(lifts.name, liftName)))
+    .limit(1);
   if (!lift) return { ok: false as const };
 
   await db
     .update(lifts)
     .set({ trainingMax, lastTmBumpAt: new Date(), updatedAt: new Date() })
-    .where(eq(lifts.id, lift.id));
+    .where(and(eq(lifts.id, lift.id), eq(lifts.userId, userId)));
 
   await db.insert(tmHistory).values({
+    userId,
     liftId: lift.id,
     trainingMax,
     reason: "manual",
@@ -106,11 +128,20 @@ const StartSessionSchema = z.object({
 export async function startSessionAction(
   programDayIdOrInput: string | z.infer<typeof StartSessionSchema>,
 ) {
+  const userId = await requireUserId();
   const input =
     typeof programDayIdOrInput === "string"
       ? { programDayId: programDayIdOrInput }
       : StartSessionSchema.parse(programDayIdOrInput);
   const { programDayId, deloadFactor } = input;
+
+  // Guard: the program day must belong to this user.
+  const [ownsDay] = await db
+    .select({ id: programDays.id })
+    .from(programDays)
+    .where(and(eq(programDays.id, programDayId), eq(programDays.userId, userId)))
+    .limit(1);
+  if (!ownsDay) return { ok: false as const, error: "Program day not found" };
 
   // Find an existing in-flight session for this day, or start new.
   // If deloadFactor differs from the existing session, scrap the snapshot and rebuild it
@@ -118,7 +149,13 @@ export async function startSessionAction(
   const [existing] = await db
     .select()
     .from(workoutSessions)
-    .where(and(eq(workoutSessions.programDayId, programDayId), isNull(workoutSessions.completedAt)))
+    .where(
+      and(
+        eq(workoutSessions.userId, userId),
+        eq(workoutSessions.programDayId, programDayId),
+        isNull(workoutSessions.completedAt),
+      ),
+    )
     .orderBy(desc(workoutSessions.startedAt))
     .limit(1);
   if (existing) {
@@ -140,35 +177,43 @@ export async function startSessionAction(
     await db
       .update(workoutSessions)
       .set({ deloadFactor: deloadFactor ?? 1 })
-      .where(eq(workoutSessions.id, existing.id));
-    await rebuildSnapshot(existing.id, programDayId, deloadFactor ?? 1);
+      .where(and(eq(workoutSessions.id, existing.id), eq(workoutSessions.userId, userId)));
+    await rebuildSnapshot(userId, existing.id, programDayId, deloadFactor ?? 1);
     return { ok: true as const, sessionId: existing.id };
   }
 
   const [created] = await db
     .insert(workoutSessions)
     .values({
+      userId,
       programDayId,
       status: "in_progress",
       deloadFactor: deloadFactor ?? 1,
     })
     .returning();
 
-  await rebuildSnapshot(created.id, programDayId, deloadFactor ?? 1);
+  await rebuildSnapshot(userId, created.id, programDayId, deloadFactor ?? 1);
   return { ok: true as const, sessionId: created.id };
 }
 
-async function rebuildSnapshot(sessionId: string, programDayId: string, factor: number) {
+async function rebuildSnapshot(
+  userId: string,
+  sessionId: string,
+  programDayId: string,
+  factor: number,
+) {
   const tmplRows = await db
     .select()
     .from(programExercises)
-    .where(eq(programExercises.programDayId, programDayId))
+    .where(
+      and(eq(programExercises.programDayId, programDayId), eq(programExercises.userId, userId)),
+    )
     .orderBy(programExercises.orderIndex);
 
   const benchLift = await db
     .select()
     .from(lifts)
-    .where(eq(lifts.name, "bench_press"))
+    .where(and(eq(lifts.userId, userId), eq(lifts.name, "bench_press")))
     .limit(1);
   const benchTm = benchLift[0]?.trainingMax ?? null;
 
@@ -187,6 +232,7 @@ async function rebuildSnapshot(sessionId: string, programDayId: string, factor: 
         );
       }
       return {
+        userId,
         sessionId,
         programExerciseId: pe.id,
         exerciseId: pe.exerciseId,
@@ -221,9 +267,26 @@ const LogSetSchema = z.object({
   isWarmup: z.boolean().default(false),
 });
 
+// Confirms the session belongs to this user. Returns true when ownership holds.
+async function ownsSession(userId: string, sessionId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: workoutSessions.id })
+    .from(workoutSessions)
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)))
+    .limit(1);
+  return !!row;
+}
+
 export async function logSetAction(input: z.infer<typeof LogSetSchema>) {
+  const userId = await requireUserId();
   const data = LogSetSchema.parse(input);
-  const [row] = await db.insert(workoutSets).values(data).returning();
+  if (!(await ownsSession(userId, data.sessionId))) {
+    return { ok: false as const, error: "Session not found" };
+  }
+  const [row] = await db
+    .insert(workoutSets)
+    .values({ ...data, userId })
+    .returning();
   return { ok: true as const, set: row };
 }
 
@@ -242,19 +305,26 @@ const SaveSessionSetsSchema = z.object({
 export async function saveSessionSetsAction(
   input: z.infer<typeof SaveSessionSetsSchema>,
 ) {
+  const userId = await requireUserId();
   const { sessionId, sets } = SaveSessionSetsSchema.parse(input);
+  if (!(await ownsSession(userId, sessionId))) {
+    return { ok: false as const, error: "Session not found" };
+  }
   // Replace any prior workout_sets for this session with the buffered ones,
   // so re-saving (or saving after edits) is idempotent.
-  await db.delete(workoutSets).where(eq(workoutSets.sessionId, sessionId));
+  await db
+    .delete(workoutSets)
+    .where(and(eq(workoutSets.sessionId, sessionId), eq(workoutSets.userId, userId)));
   if (sets.length > 0) {
     await db
       .insert(workoutSets)
-      .values(sets.map((s) => ({ ...s, sessionId })));
+      .values(sets.map((s) => ({ ...s, sessionId, userId })));
   }
   return { ok: true as const, count: sets.length };
 }
 
 export async function updateSetAction(input: z.infer<typeof UpdateSetSchema>) {
+  const userId = await requireUserId();
   const data = UpdateSetSchema.parse(input);
   const [row] = await db
     .update(workoutSets)
@@ -263,17 +333,18 @@ export async function updateSetAction(input: z.infer<typeof UpdateSetSchema>) {
       weightUsed: data.weightUsed,
       rir: data.rir,
     })
-    .where(eq(workoutSets.id, data.id))
+    .where(and(eq(workoutSets.id, data.id), eq(workoutSets.userId, userId)))
     .returning();
   return { ok: true as const, set: row };
 }
 
 export async function stampFirstSetAction(sessionId: string) {
+  const userId = await requireUserId();
   // Idempotent: only writes if first_set_at is still null.
   const [s] = await db
     .select({ firstSetAt: workoutSessions.firstSetAt })
     .from(workoutSessions)
-    .where(eq(workoutSessions.id, sessionId))
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)))
     .limit(1);
   if (!s) return { ok: false as const };
   if (s.firstSetAt) return { ok: true as const, firstSetAt: (s.firstSetAt as Date).toISOString() };
@@ -281,41 +352,58 @@ export async function stampFirstSetAction(sessionId: string) {
   await db
     .update(workoutSessions)
     .set({ firstSetAt: now })
-    .where(eq(workoutSessions.id, sessionId));
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)));
   return { ok: true as const, firstSetAt: now.toISOString() };
 }
 
 export async function completeSessionAction(sessionId: string) {
+  const userId = await requireUserId();
   // Mark any still-pending session_exercises as skipped, but only set status=completed on the session.
   await db
     .update(workoutSessions)
     .set({ completedAt: new Date(), status: "completed" })
-    .where(eq(workoutSessions.id, sessionId));
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)));
   await db
     .update(sessionExercises)
     .set({ status: "skipped" })
-    .where(and(eq(sessionExercises.sessionId, sessionId), eq(sessionExercises.status, "pending")));
+    .where(
+      and(
+        eq(sessionExercises.sessionId, sessionId),
+        eq(sessionExercises.userId, userId),
+        eq(sessionExercises.status, "pending"),
+      ),
+    );
   // Layout-level revalidation so the resume banner re-fetches and clears.
   revalidatePath("/", "layout");
   return { ok: true as const };
 }
 
 export async function discardSessionAction(sessionId: string) {
+  const userId = await requireUserId();
   // Hard delete — FK cascades drop workout_sets and session_exercises rows.
-  await db.delete(workoutSessions).where(eq(workoutSessions.id, sessionId));
+  await db
+    .delete(workoutSessions)
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)));
   revalidatePath("/", "layout");
   return { ok: true as const };
 }
 
 export async function endSessionEarlyAction(sessionId: string) {
+  const userId = await requireUserId();
   await db
     .update(workoutSessions)
     .set({ completedAt: new Date(), status: "partial" })
-    .where(eq(workoutSessions.id, sessionId));
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)));
   await db
     .update(sessionExercises)
     .set({ status: "skipped" })
-    .where(and(eq(sessionExercises.sessionId, sessionId), eq(sessionExercises.status, "pending")));
+    .where(
+      and(
+        eq(sessionExercises.sessionId, sessionId),
+        eq(sessionExercises.userId, userId),
+        eq(sessionExercises.status, "pending"),
+      ),
+    );
   revalidatePath("/", "layout");
   return { ok: true as const };
 }
@@ -328,12 +416,15 @@ const SetSessionExerciseNotesSchema = z.object({
 export async function setSessionExerciseNotesAction(
   input: z.infer<typeof SetSessionExerciseNotesSchema>,
 ) {
+  const userId = await requireUserId();
   const { sessionExerciseId, notes } = SetSessionExerciseNotesSchema.parse(input);
   const trimmed = notes?.trim();
   await db
     .update(sessionExercises)
     .set({ notes: trimmed && trimmed.length > 0 ? trimmed : null })
-    .where(eq(sessionExercises.id, sessionExerciseId));
+    .where(
+      and(eq(sessionExercises.id, sessionExerciseId), eq(sessionExercises.userId, userId)),
+    );
   return { ok: true as const };
 }
 
@@ -343,12 +434,15 @@ const SwapSchema = z.object({
 });
 
 export async function swapSessionExerciseAction(input: z.infer<typeof SwapSchema>) {
+  const userId = await requireUserId();
   const { sessionExerciseId, newExerciseId } = SwapSchema.parse(input);
 
   const [se] = await db
     .select()
     .from(sessionExercises)
-    .where(eq(sessionExercises.id, sessionExerciseId))
+    .where(
+      and(eq(sessionExercises.id, sessionExerciseId), eq(sessionExercises.userId, userId)),
+    )
     .limit(1);
   if (!se) return { ok: false as const, error: "Session exercise not found" };
 
@@ -374,7 +468,9 @@ export async function swapSessionExerciseAction(input: z.infer<typeof SwapSchema
       swappedFromExerciseId: se.swappedFromExerciseId ?? se.exerciseId,
       liftId: null,
     })
-    .where(eq(sessionExercises.id, sessionExerciseId));
+    .where(
+      and(eq(sessionExercises.id, sessionExerciseId), eq(sessionExercises.userId, userId)),
+    );
 
   revalidatePath("/");
   return { ok: true as const, wasMainLift: se.liftId != null };
@@ -386,6 +482,7 @@ const ReorderSchema = z.object({
 });
 
 export async function reorderSessionExercisesAction(input: z.infer<typeof ReorderSchema>) {
+  const userId = await requireUserId();
   const { sessionId, orderedIds } = ReorderSchema.parse(input);
   // Sequential updates (drizzle's transaction API varies by driver). For dev DB this is fine.
   for (let i = 0; i < orderedIds.length; i++) {
@@ -396,6 +493,7 @@ export async function reorderSessionExercisesAction(input: z.infer<typeof Reorde
         and(
           eq(sessionExercises.id, orderedIds[i]),
           eq(sessionExercises.sessionId, sessionId),
+          eq(sessionExercises.userId, userId),
         ),
       );
   }
@@ -415,11 +513,13 @@ const StartExtraSchema = z.object({
 });
 
 export async function startExtraSessionAction(input: z.infer<typeof StartExtraSchema>) {
+  const userId = await requireUserId();
   const { exercises: exs } = StartExtraSchema.parse(input);
 
   const [created] = await db
     .insert(workoutSessions)
     .values({
+      userId,
       programDayId: null,
       isExtra: true,
       status: "in_progress",
@@ -429,6 +529,7 @@ export async function startExtraSessionAction(input: z.infer<typeof StartExtraSc
 
   await db.insert(sessionExercises).values(
     exs.map((e, i) => ({
+      userId,
       sessionId: created.id,
       programExerciseId: null,
       exerciseId: e.exerciseId,
@@ -451,11 +552,21 @@ const MarkDayStatusSchema = z.object({
 });
 
 export async function markDayStatusAction(input: z.infer<typeof MarkDayStatusSchema>) {
+  const userId = await requireUserId();
   const data = MarkDayStatusSchema.parse(input);
+
+  // Guard: the program day must belong to this user.
+  const [ownsDay] = await db
+    .select({ id: programDays.id })
+    .from(programDays)
+    .where(and(eq(programDays.id, data.programDayId), eq(programDays.userId, userId)))
+    .limit(1);
+  if (!ownsDay) return { ok: false as const, error: "Program day not found" };
+
   const [existing] = await db
     .select()
     .from(dayStatus)
-    .where(eq(dayStatus.programDayId, data.programDayId))
+    .where(and(eq(dayStatus.programDayId, data.programDayId), eq(dayStatus.userId, userId)))
     .limit(1);
   if (existing) {
     await db
@@ -465,9 +576,10 @@ export async function markDayStatusAction(input: z.infer<typeof MarkDayStatusSch
         rescheduledTo: data.rescheduledTo ?? null,
         updatedAt: new Date(),
       })
-      .where(eq(dayStatus.id, existing.id));
+      .where(and(eq(dayStatus.id, existing.id), eq(dayStatus.userId, userId)));
   } else {
     await db.insert(dayStatus).values({
+      userId,
       programDayId: data.programDayId,
       state: data.state,
       rescheduledTo: data.rescheduledTo ?? null,
@@ -483,8 +595,13 @@ const AmrapApplySchema = z.object({
 });
 
 export async function applyAmrapBumpAction(input: z.infer<typeof AmrapApplySchema>) {
+  const userId = await requireUserId();
   const { liftName, amrapReps } = AmrapApplySchema.parse(input);
-  const [lift] = await db.select().from(lifts).where(eq(lifts.name, liftName)).limit(1);
+  const [lift] = await db
+    .select()
+    .from(lifts)
+    .where(and(eq(lifts.userId, userId), eq(lifts.name, liftName)))
+    .limit(1);
   if (!lift || lift.trainingMax == null) return { ok: false as const, error: "TM not set" };
   const result = applyAmrapBump(lift.trainingMax, amrapReps);
   if (result.bumpAmount === 0) {
@@ -493,8 +610,9 @@ export async function applyAmrapBumpAction(input: z.infer<typeof AmrapApplySchem
   await db
     .update(lifts)
     .set({ trainingMax: result.newTm, lastTmBumpAt: new Date(), updatedAt: new Date() })
-    .where(eq(lifts.id, lift.id));
+    .where(and(eq(lifts.id, lift.id), eq(lifts.userId, userId)));
   await db.insert(tmHistory).values({
+    userId,
     liftId: lift.id,
     trainingMax: result.newTm,
     reason: "amrap_bump",
@@ -506,17 +624,22 @@ export async function applyAmrapBumpAction(input: z.infer<typeof AmrapApplySchem
 }
 
 export async function setUnitsAction(units: "lb" | "kg") {
-  const [s] = await db.select().from(settings).limit(1);
+  const userId = await requireUserId();
+  const [s] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
   if (s) {
-    await db.update(settings).set({ units, updatedAt: new Date() }).where(eq(settings.id, s.id));
+    await db
+      .update(settings)
+      .set({ units, updatedAt: new Date() })
+      .where(and(eq(settings.id, s.id), eq(settings.userId, userId)));
   } else {
-    await db.insert(settings).values({ units });
+    await db.insert(settings).values({ userId, units });
   }
   revalidatePath("/settings");
   return { ok: true as const };
 }
 
 export async function setTimezoneAction(timezone: string) {
+  const userId = await requireUserId();
   // Validate against the runtime's IANA list to avoid storing junk.
   const valid = z
     .string()
@@ -536,37 +659,47 @@ export async function setTimezoneAction(timezone: string) {
     .safeParse(timezone);
   if (!valid.success) return { ok: false as const, error: valid.error.message };
   const tz = valid.data;
-  const [s] = await db.select().from(settings).limit(1);
+  const [s] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
   if (s) {
-    await db.update(settings).set({ timezone: tz, updatedAt: new Date() }).where(eq(settings.id, s.id));
+    await db
+      .update(settings)
+      .set({ timezone: tz, updatedAt: new Date() })
+      .where(and(eq(settings.id, s.id), eq(settings.userId, userId)));
   } else {
-    await db.insert(settings).values({ timezone: tz });
+    await db.insert(settings).values({ userId, timezone: tz });
   }
   revalidatePath("/", "layout");
   return { ok: true as const };
 }
 
 export async function resetProgramAction() {
-  // Delete all sessions and sets, reset week to 1
-  await db.delete(workoutSets);
-  await db.delete(workoutSessions);
-  const [p] = await db.select().from(programs).limit(1);
+  const userId = await requireUserId();
+  // Delete this user's sessions and sets, reset week to 1. Scoped to the user —
+  // never touches another account's data.
+  await db.delete(workoutSets).where(eq(workoutSets.userId, userId));
+  await db.delete(workoutSessions).where(eq(workoutSessions.userId, userId));
+  const [p] = await db.select().from(programs).where(eq(programs.userId, userId)).limit(1);
   if (p) {
     await db
       .update(programs)
-      .set({ currentWeek: 1, status: "active", startDate: isoDate(new Date(), await getTimezone()) })
-      .where(eq(programs.id, p.id));
+      .set({
+        currentWeek: 1,
+        status: "active",
+        startDate: isoDate(new Date(), await getTimezone(userId)),
+      })
+      .where(and(eq(programs.id, p.id), eq(programs.userId, userId)));
   }
   revalidatePath("/");
   revalidatePath("/program");
   return { ok: true as const };
 }
 
-// Diagnostic: count completed sessions
+// Diagnostic: count completed sessions for the current user
 export async function _diag() {
+  const userId = await requireUserId();
   const r = await db
     .select({ c: sql<number>`count(*)` })
     .from(workoutSessions)
-    .where(isNotNull(workoutSessions.completedAt));
+    .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.completedAt)));
   return { count: Number(r[0]?.c ?? 0) };
 }

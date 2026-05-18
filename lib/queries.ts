@@ -15,41 +15,66 @@ import {
 } from "@/lib/db/schema";
 import { and, desc, eq, gte, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { isoDate, scheduledDateForDay } from "@/lib/program-state";
+import { requireUserId } from "@/lib/auth";
+
+// Every query here is scoped to the signed-in user. `requireUserId` reads the
+// session cookie; middleware guarantees a valid session on every app route, so
+// the throw path is effectively unreachable for normal navigation.
 
 export async function getActiveProgram() {
-  const [p] = await db.select().from(programs).where(eq(programs.status, "active")).limit(1);
+  const userId = await requireUserId();
+  const [p] = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.userId, userId), eq(programs.status, "active")))
+    .limit(1);
   return p ?? null;
 }
 
 export async function getSettings() {
-  const [s] = await db.select().from(settings).limit(1);
+  const userId = await requireUserId();
+  const [s] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
   return s ?? null;
 }
 
 export async function getAllLifts() {
-  return db.select().from(lifts);
+  const userId = await requireUserId();
+  return db.select().from(lifts).where(eq(lifts.userId, userId));
 }
 
+// The exercise library is shared across all users — not user-scoped.
 export async function getAllExercises() {
   return db.select().from(exercises).orderBy(exercises.muscleGroup, exercises.name);
 }
 
 export async function getLiftByName(name: "bench_press" | "back_squat" | "deadlift" | "overhead_press") {
-  const [l] = await db.select().from(lifts).where(eq(lifts.name, name)).limit(1);
+  const userId = await requireUserId();
+  const [l] = await db
+    .select()
+    .from(lifts)
+    .where(and(eq(lifts.userId, userId), eq(lifts.name, name)))
+    .limit(1);
   return l ?? null;
 }
 
 export async function getProgramDay(id: string) {
-  const [pd] = await db.select().from(programDays).where(eq(programDays.id, id)).limit(1);
+  const userId = await requireUserId();
+  const [pd] = await db
+    .select()
+    .from(programDays)
+    .where(and(eq(programDays.id, id), eq(programDays.userId, userId)))
+    .limit(1);
   return pd ?? null;
 }
 
 export async function getProgramDayByWeekDay(programId: string, weekNumber: number, dayOfWeek: number) {
+  const userId = await requireUserId();
   const [pd] = await db
     .select()
     .from(programDays)
     .where(
       and(
+        eq(programDays.userId, userId),
         eq(programDays.programId, programId),
         eq(programDays.weekNumber, weekNumber),
         eq(programDays.dayOfWeek, dayOfWeek),
@@ -60,6 +85,7 @@ export async function getProgramDayByWeekDay(programId: string, weekNumber: numb
 }
 
 export async function getProgramExercises(programDayId: string) {
+  const userId = await requireUserId();
   return db
     .select({
       pe: programExercises,
@@ -67,48 +93,62 @@ export async function getProgramExercises(programDayId: string) {
     })
     .from(programExercises)
     .innerJoin(exercises, eq(programExercises.exerciseId, exercises.id))
-    .where(eq(programExercises.programDayId, programDayId))
+    .where(
+      and(eq(programExercises.programDayId, programDayId), eq(programExercises.userId, userId)),
+    )
     .orderBy(programExercises.orderIndex);
 }
 
 export async function getAllProgramDays(programId: string) {
+  const userId = await requireUserId();
   return db
     .select()
     .from(programDays)
-    .where(eq(programDays.programId, programId))
+    .where(and(eq(programDays.programId, programId), eq(programDays.userId, userId)))
     .orderBy(programDays.weekNumber, programDays.dayOfWeek);
 }
 
 export async function getRecentBodyWeights(limit = 30) {
+  const userId = await requireUserId();
   return db
     .select()
     .from(bodyWeightLogs)
+    .where(eq(bodyWeightLogs.userId, userId))
     .orderBy(desc(bodyWeightLogs.date))
     .limit(limit);
 }
 
 export async function getTmHistory(liftId: string) {
+  const userId = await requireUserId();
   return db
     .select()
     .from(tmHistory)
-    .where(eq(tmHistory.liftId, liftId))
+    .where(and(eq(tmHistory.liftId, liftId), eq(tmHistory.userId, userId)))
     .orderBy(desc(tmHistory.effectiveFrom));
 }
 
 export async function getRecentSessions(limit = 30) {
+  const userId = await requireUserId();
   return db
     .select()
     .from(workoutSessions)
-    .where(isNotNull(workoutSessions.completedAt))
+    .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.completedAt)))
     .orderBy(desc(workoutSessions.startedAt))
     .limit(limit);
 }
 
 export async function getLastSetForExercise(exerciseId: string) {
+  const userId = await requireUserId();
   const [row] = await db
     .select()
     .from(workoutSets)
-    .where(and(eq(workoutSets.exerciseId, exerciseId), isNotNull(workoutSets.repsCompleted)))
+    .where(
+      and(
+        eq(workoutSets.userId, userId),
+        eq(workoutSets.exerciseId, exerciseId),
+        isNotNull(workoutSets.repsCompleted),
+      ),
+    )
     .orderBy(desc(workoutSets.completedAt))
     .limit(1);
   return row ?? null;
@@ -134,7 +174,12 @@ export async function getLastSessionSetsForExercise(
   exerciseId: string,
   excludeSessionId?: string,
 ): Promise<LastSessionSets | null> {
-  const conds = [eq(workoutSets.exerciseId, exerciseId), isNotNull(workoutSets.repsCompleted)];
+  const userId = await requireUserId();
+  const conds = [
+    eq(workoutSets.userId, userId),
+    eq(workoutSets.exerciseId, exerciseId),
+    isNotNull(workoutSets.repsCompleted),
+  ];
   if (excludeSessionId) conds.push(ne(workoutSets.sessionId, excludeSessionId));
 
   const [mostRecent] = await db
@@ -150,6 +195,7 @@ export async function getLastSessionSetsForExercise(
     .from(workoutSets)
     .where(
       and(
+        eq(workoutSets.userId, userId),
         eq(workoutSets.sessionId, mostRecent.sessionId),
         eq(workoutSets.exerciseId, exerciseId),
         isNotNull(workoutSets.repsCompleted),
@@ -161,7 +207,9 @@ export async function getLastSessionSetsForExercise(
   const [sess] = await db
     .select()
     .from(workoutSessions)
-    .where(eq(workoutSessions.id, mostRecent.sessionId))
+    .where(
+      and(eq(workoutSessions.id, mostRecent.sessionId), eq(workoutSessions.userId, userId)),
+    )
     .limit(1);
   const dateSource = sess?.completedAt ?? sess?.startedAt ?? sets[sets.length - 1].completedAt;
   return {
@@ -178,11 +226,13 @@ export async function getLastSessionSetsForExercise(
 }
 
 export async function getCompletedSessionForProgramDay(programDayId: string) {
+  const userId = await requireUserId();
   const [s] = await db
     .select()
     .from(workoutSessions)
     .where(
       and(
+        eq(workoutSessions.userId, userId),
         eq(workoutSessions.programDayId, programDayId),
         isNotNull(workoutSessions.completedAt),
       ),
@@ -192,6 +242,7 @@ export async function getCompletedSessionForProgramDay(programDayId: string) {
 }
 
 export async function getNextScheduledDay(programId: string) {
+  const userId = await requireUserId();
   // First program day for this program with no completed session
   const all = await db
     .select({
@@ -206,7 +257,7 @@ export async function getNextScheduledDay(programId: string) {
         isNotNull(workoutSessions.completedAt),
       ),
     )
-    .where(eq(programDays.programId, programId))
+    .where(and(eq(programDays.programId, programId), eq(programDays.userId, userId)))
     .orderBy(programDays.weekNumber, programDays.dayOfWeek);
 
   const next = all.find((r) => r.sess == null && r.pd.sessionType !== "rest");
@@ -220,15 +271,23 @@ export async function getProgramOverview(programId: string) {
 }
 
 export async function countCompletedSessions(programId: string): Promise<number> {
+  const userId = await requireUserId();
   const rows = await db
     .select({ c: sql<number>`count(*)` })
     .from(workoutSessions)
     .innerJoin(programDays, eq(workoutSessions.programDayId, programDays.id))
-    .where(and(eq(programDays.programId, programId), isNotNull(workoutSessions.completedAt)));
+    .where(
+      and(
+        eq(workoutSessions.userId, userId),
+        eq(programDays.programId, programId),
+        isNotNull(workoutSessions.completedAt),
+      ),
+    );
   return Number(rows[0]?.c ?? 0);
 }
 
 export async function getSessionExercises(sessionId: string) {
+  const userId = await requireUserId();
   return db
     .select({
       se: sessionExercises,
@@ -236,7 +295,7 @@ export async function getSessionExercises(sessionId: string) {
     })
     .from(sessionExercises)
     .innerJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
-    .where(eq(sessionExercises.sessionId, sessionId))
+    .where(and(eq(sessionExercises.sessionId, sessionId), eq(sessionExercises.userId, userId)))
     .orderBy(sessionExercises.orderIndex);
 }
 
@@ -248,6 +307,7 @@ const STALE_PHANTOM_MS = 3 * 60 * 60 * 1000;
 const STALE_ABANDONED_MS = 12 * 60 * 60 * 1000;
 
 export async function getInProgressSession() {
+  const userId = await requireUserId();
   // Newest first. The status filter matters: abandoned/partial sessions can
   // also have completed_at IS NULL, and without it they'd leak into the
   // resume banner.
@@ -255,7 +315,13 @@ export async function getInProgressSession() {
     .select({ s: workoutSessions, pd: programDays })
     .from(workoutSessions)
     .leftJoin(programDays, eq(workoutSessions.programDayId, programDays.id))
-    .where(and(isNull(workoutSessions.completedAt), eq(workoutSessions.status, "in_progress")))
+    .where(
+      and(
+        eq(workoutSessions.userId, userId),
+        isNull(workoutSessions.completedAt),
+        eq(workoutSessions.status, "in_progress"),
+      ),
+    )
     .orderBy(desc(workoutSessions.startedAt));
 
   const now = Date.now();
@@ -272,7 +338,9 @@ export async function getInProgressSession() {
     // snapshot. This is what kept the resume banner nagging for days after an
     // accidental "Start workout" tap.
     if (setsLogged === 0 && ageMs > STALE_PHANTOM_MS) {
-      await db.delete(workoutSessions).where(eq(workoutSessions.id, row.s.id));
+      await db
+        .delete(workoutSessions)
+        .where(and(eq(workoutSessions.id, row.s.id), eq(workoutSessions.userId, userId)));
       continue;
     }
     // Real workout abandoned mid-way: keep the logged sets but stop nagging.
@@ -280,7 +348,7 @@ export async function getInProgressSession() {
       await db
         .update(workoutSessions)
         .set({ status: "abandoned" })
-        .where(eq(workoutSessions.id, row.s.id));
+        .where(and(eq(workoutSessions.id, row.s.id), eq(workoutSessions.userId, userId)));
       continue;
     }
 
@@ -297,10 +365,11 @@ export async function getInProgressSession() {
 }
 
 export async function getLastCompletedSessionAt(): Promise<Date | null> {
+  const userId = await requireUserId();
   const [row] = await db
     .select()
     .from(workoutSessions)
-    .where(isNotNull(workoutSessions.completedAt))
+    .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.completedAt)))
     .orderBy(desc(workoutSessions.completedAt))
     .limit(1);
   return row?.completedAt ? new Date(row.completedAt as unknown as string) : null;
@@ -309,7 +378,12 @@ export async function getLastCompletedSessionAt(): Promise<Date | null> {
 // Days the user missed: scheduled date < today, no completed session,
 // and not marked done/skipped/rescheduled-to-future via dayStatus.
 export async function getMissedDays(programId: string, today = new Date(), tz?: string) {
-  const program = await db.select().from(programs).where(eq(programs.id, programId)).limit(1);
+  const userId = await requireUserId();
+  const program = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.id, programId), eq(programs.userId, userId)))
+    .limit(1);
   const p = program[0];
   if (!p) return [];
 
@@ -328,7 +402,7 @@ export async function getMissedDays(programId: string, today = new Date(), tz?: 
       ),
     )
     .leftJoin(dayStatus, eq(dayStatus.programDayId, programDays.id))
-    .where(eq(programDays.programId, programId))
+    .where(and(eq(programDays.programId, programId), eq(programDays.userId, userId)))
     .orderBy(programDays.weekNumber, programDays.dayOfWeek);
 
   const todayIso = isoDate(today, tz);
@@ -349,6 +423,7 @@ export async function getMissedDays(programId: string, today = new Date(), tz?: 
 }
 
 export async function getRescheduledDaysForToday(programId: string, today = new Date(), tz?: string) {
+  const userId = await requireUserId();
   const todayIso = isoDate(today, tz);
   const rows = await db
     .select({ pd: programDays, ds: dayStatus })
@@ -356,6 +431,7 @@ export async function getRescheduledDaysForToday(programId: string, today = new 
     .innerJoin(programDays, eq(dayStatus.programDayId, programDays.id))
     .where(
       and(
+        eq(programDays.userId, userId),
         eq(programDays.programId, programId),
         eq(dayStatus.state, "rescheduled"),
         eq(dayStatus.rescheduledTo, todayIso),
@@ -365,21 +441,23 @@ export async function getRescheduledDaysForToday(programId: string, today = new 
 }
 
 export async function getDayStatus(programDayId: string) {
+  const userId = await requireUserId();
   const [r] = await db
     .select()
     .from(dayStatus)
-    .where(eq(dayStatus.programDayId, programDayId))
+    .where(and(eq(dayStatus.programDayId, programDayId), eq(dayStatus.userId, userId)))
     .limit(1);
   return r ?? null;
 }
 
 export async function getBodyWeightsSinceDays(days: number, tz?: string) {
+  const userId = await requireUserId();
   const since = new Date();
   since.setDate(since.getDate() - days);
   const dateStr = isoDate(since, tz);
   return db
     .select()
     .from(bodyWeightLogs)
-    .where(gte(bodyWeightLogs.date, dateStr))
+    .where(and(eq(bodyWeightLogs.userId, userId), gte(bodyWeightLogs.date, dateStr)))
     .orderBy(bodyWeightLogs.date);
 }

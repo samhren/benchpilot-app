@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { workoutSessions, workoutSets } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   getAllExercises,
   getAllLifts,
@@ -11,17 +11,19 @@ import {
   getSessionExercises,
   getSettings,
 } from "@/lib/queries";
+import { requireUserId } from "@/lib/auth";
 import ActiveWorkout, { type SetRow } from "../../../[id]/active/active-client";
 
 interface Params { sessionId: string }
 
 export default async function ExtraActivePage({ params }: { params: Promise<Params> }) {
   const { sessionId } = await params;
+  const userId = await requireUserId();
 
   const [sess] = await db
     .select()
     .from(workoutSessions)
-    .where(eq(workoutSessions.id, sessionId))
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)))
     .limit(1);
   if (!sess || !sess.isExtra) notFound();
 
@@ -33,7 +35,7 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
   const loggedSets = await db
     .select()
     .from(workoutSets)
-    .where(eq(workoutSets.sessionId, sessionId));
+    .where(and(eq(workoutSets.sessionId, sessionId), eq(workoutSets.userId, userId)));
   const loggedMap = new Map<string, (typeof loggedSets)[number]>();
   for (const s of loggedSets) {
     if (!s.sessionExerciseId) continue;
@@ -117,7 +119,7 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
       sessionType={"extra"}
       sessionStartedAt={new Date(sess.startedAt).getTime()}
       sessionFirstSetAt={sess.firstSetAt ? new Date(sess.firstSetAt).getTime() : null}
-      initialIdx={(await db.select({ id: workoutSets.id }).from(workoutSets).where(eq(workoutSets.sessionId, sessionId))).length}
+      initialIdx={(await db.select({ id: workoutSets.id }).from(workoutSets).where(and(eq(workoutSets.sessionId, sessionId), eq(workoutSets.userId, userId)))).length}
       rows={rows}
       isBenchAmrapDay={false}
       benchTm={benchTm}

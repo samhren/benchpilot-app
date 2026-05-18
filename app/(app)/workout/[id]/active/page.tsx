@@ -14,6 +14,7 @@ import {
 } from "@/lib/queries";
 import { startSessionAction } from "@/app/actions";
 import { getTempoForBenchSet } from "@/lib/programming/tempo";
+import { requireUserId } from "@/lib/auth";
 import ActiveWorkout, { type SetRow } from "./active-client";
 
 interface Params { id: string }
@@ -27,6 +28,7 @@ export default async function ActivePage({
 }) {
   const { id } = await params;
   const sp = (await searchParams) ?? {};
+  const userId = await requireUserId();
   const day = await getProgramDay(id);
   if (!day) notFound();
   if (day.sessionType === "rest") redirect("/program");
@@ -41,7 +43,11 @@ export default async function ActivePage({
     .select({ id: workoutSessions.id })
     .from(workoutSessions)
     .where(
-      and(eq(workoutSessions.programDayId, id), isNotNull(workoutSessions.completedAt)),
+      and(
+        eq(workoutSessions.userId, userId),
+        eq(workoutSessions.programDayId, id),
+        isNotNull(workoutSessions.completedAt),
+      ),
     )
     .limit(1);
   if (priorCompleted) {
@@ -49,7 +55,11 @@ export default async function ActivePage({
       .select({ id: workoutSessions.id })
       .from(workoutSessions)
       .where(
-        and(eq(workoutSessions.programDayId, id), isNull(workoutSessions.completedAt)),
+        and(
+          eq(workoutSessions.userId, userId),
+          eq(workoutSessions.programDayId, id),
+          isNull(workoutSessions.completedAt),
+        ),
       )
       .limit(1);
     if (!stillInFlight) {
@@ -66,7 +76,7 @@ export default async function ActivePage({
   const [sessionRow] = await db
     .select()
     .from(workoutSessions)
-    .where(eq(workoutSessions.id, sessionId))
+    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)))
     .limit(1);
   const sessionStartedAt = sessionRow?.startedAt
     ? new Date(sessionRow.startedAt).getTime()
@@ -77,7 +87,7 @@ export default async function ActivePage({
   const loggedSets = await db
     .select()
     .from(workoutSets)
-    .where(eq(workoutSets.sessionId, sessionId));
+    .where(and(eq(workoutSets.sessionId, sessionId), eq(workoutSets.userId, userId)));
   const initialIdx = loggedSets.length;
   const loggedMap = new Map<string, (typeof loggedSets)[number]>();
   for (const s of loggedSets) {

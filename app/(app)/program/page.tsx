@@ -8,6 +8,7 @@ import { eq, isNotNull, and } from "drizzle-orm";
 import { getActiveProgram, getAllProgramDays, getSettings } from "@/lib/queries";
 import { computeProgramWeek, dayOfWeekInTz } from "@/lib/program-state";
 import { BP, Eyebrow, Mono } from "@/components/ui/primitives";
+import { requireUserId } from "@/lib/auth";
 
 const SESSION_COLORS: Record<string, string> = {
   upper_a: "#FF2F2F",
@@ -40,6 +41,7 @@ const BLOCKS = [
 ];
 
 export default async function ProgramPage() {
+  const userId = await requireUserId();
   const program = await getActiveProgram();
   if (!program) redirect("/settings");
 
@@ -48,7 +50,13 @@ export default async function ProgramPage() {
     .select({ pdId: workoutSessions.programDayId })
     .from(workoutSessions)
     .innerJoin(programDays, eq(workoutSessions.programDayId, programDays.id))
-    .where(and(eq(programDays.programId, program.id), isNotNull(workoutSessions.completedAt)));
+    .where(
+      and(
+        eq(workoutSessions.userId, userId),
+        eq(programDays.programId, program.id),
+        isNotNull(workoutSessions.completedAt),
+      ),
+    );
   const doneIds = new Set(completed.map((c) => c.pdId));
 
   const settingsRow = await getSettings();

@@ -2,10 +2,12 @@ export const dynamic = "force-dynamic";
 
 import { db } from "@/lib/db";
 import { workoutSessions, programDays, workoutSets } from "@/lib/db/schema";
-import { desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { BP, Eyebrow, Mono } from "@/components/ui/primitives";
+import { requireUserId } from "@/lib/auth";
 
 export default async function HistoryPage() {
+  const userId = await requireUserId();
   const sessions = await db
     .select({
       session: workoutSessions,
@@ -15,7 +17,7 @@ export default async function HistoryPage() {
     .from(workoutSessions)
     .leftJoin(programDays, eq(workoutSessions.programDayId, programDays.id))
     .leftJoin(workoutSets, eq(workoutSets.sessionId, workoutSessions.id))
-    .where(isNotNull(workoutSessions.completedAt))
+    .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.completedAt)))
     .groupBy(workoutSessions.id, programDays.id)
     .orderBy(desc(workoutSessions.startedAt))
     .limit(50);

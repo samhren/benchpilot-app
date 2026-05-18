@@ -1,5 +1,9 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { LEGACY_SUB, LEGACY_USER_ID, hashPin, pinHashesEqual, resolveUserId } from "@/lib/auth-core";
+
+// Re-export the pure helpers so existing imports of `@/lib/auth` keep working.
+export { LEGACY_SUB, LEGACY_USER_ID, hashPin, pinHashesEqual, resolveUserId };
 
 const COOKIE_NAME = "bp_session";
 const ALG = "HS256";
@@ -13,8 +17,8 @@ function key(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-export async function signSession(): Promise<string> {
-  return await new SignJWT({ sub: "sam" })
+export async function signSession(userId: string): Promise<string> {
+  return await new SignJWT({ sub: userId })
     .setProtectedHeader({ alg: ALG })
     .setIssuedAt()
     .setExpirationTime(`${MAX_AGE_SEC}s`)
@@ -31,9 +35,30 @@ export async function verifySession(token: string | undefined | null): Promise<b
   }
 }
 
-export async function isAuthenticated(): Promise<boolean> {
+// The current user's id, or null if unauthenticated. Server-side only.
+export async function getSessionUserId(): Promise<string | null> {
   const c = await cookies();
-  return verifySession(c.get(COOKIE_NAME)?.value);
+  const token = c.get(COOKIE_NAME)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, key(), { algorithms: [ALG] });
+    return resolveUserId(payload.sub);
+  } catch {
+    return null;
+  }
+}
+
+// As getSessionUserId, but throws when there is no session. Middleware already
+// guarantees a valid session on every app route, so callers in queries/actions
+// can treat the throw as unreachable.
+export async function requireUserId(): Promise<string> {
+  const id = await getSessionUserId();
+  if (!id) throw new Error("Not authenticated");
+  return id;
+}
+
+export async function isAuthenticated(): Promise<boolean> {
+  return (await getSessionUserId()) != null;
 }
 
 export async function setSessionCookie(token: string): Promise<void> {
