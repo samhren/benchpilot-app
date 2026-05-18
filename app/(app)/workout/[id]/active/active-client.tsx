@@ -1795,7 +1795,10 @@ function FullTimerOverlay({
         background: BP.bg,
       }}
     >
-      <div className="px-5 pt-12 flex justify-between items-center">
+      <div
+        className="px-5 flex justify-between items-center"
+        style={{ paddingTop: "max(48px, calc(env(safe-area-inset-top) + 20px))" }}
+      >
         <div>
           <Eyebrow>Resting</Eyebrow>
           <div className="text-[13px] mt-0.5" style={{ color: BP.textMuted }}>
@@ -2460,7 +2463,7 @@ function ReviewSheet({
           display: "flex",
           alignItems: "center",
           gap: 10,
-          padding: "14px 18px 10px",
+          padding: "calc(env(safe-area-inset-top) + 14px) 18px 10px",
           borderBottom: `1px solid ${BP.borderSoft}`,
           background: BP.bg,
         }}

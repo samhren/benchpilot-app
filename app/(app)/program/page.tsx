@@ -82,8 +82,9 @@ export default async function ProgramPage() {
       </div>
 
       <div
-        className="sticky top-0 z-10 grid gap-1.5 px-1 py-3 mb-2"
+        className="sticky z-10 grid gap-1.5 px-1 py-3 mb-2"
         style={{
+          top: "env(safe-area-inset-top)",
           gridTemplateColumns: "32px repeat(7, 1fr)",
           background: BP.bg,
           borderBottom: `1px solid ${BP.borderSoft}`,

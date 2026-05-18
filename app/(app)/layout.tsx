@@ -9,7 +9,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-dvh">
-      <main className="mx-auto w-full max-w-[420px] pb-32">{children}</main>
+      <main
+        className="mx-auto w-full max-w-[420px] pb-32"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
+        {children}
+      </main>
       {inProgress ? <ResumeWorkoutBanner session={inProgress} /> : null}
       <BottomNav />
     </div>
