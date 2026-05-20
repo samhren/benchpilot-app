@@ -637,18 +637,25 @@ export async function markDayStatusAction(input: z.infer<typeof MarkDayStatusSch
 const AmrapApplySchema = z.object({
   liftName: z.enum(["bench_press", "back_squat", "deadlift", "overhead_press"]),
   amrapReps: z.number().int().nonnegative(),
+  amrapPercentage: z.number().min(50).max(100).optional(),
 });
 
 export async function applyAmrapBumpAction(input: z.infer<typeof AmrapApplySchema>) {
   const userId = await requireUserId();
-  const { liftName, amrapReps } = AmrapApplySchema.parse(input);
+  const { liftName, amrapReps, amrapPercentage } = AmrapApplySchema.parse(input);
   const [lift] = await db
     .select()
     .from(lifts)
     .where(and(eq(lifts.userId, userId), eq(lifts.name, liftName)))
     .limit(1);
   if (!lift || lift.trainingMax == null) return { ok: false as const, error: "TM not set" };
-  const result = applyAmrapBump(lift.trainingMax, amrapReps);
+  const [settingsRow] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.userId, userId))
+    .limit(1);
+  const units: "lb" | "kg" = settingsRow?.units === "kg" ? "kg" : "lb";
+  const result = applyAmrapBump(lift.trainingMax, amrapReps, { units, amrapPercentage });
   if (result.bumpAmount === 0) {
     return { ok: true as const, applied: false, ...result };
   }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { BP, BigButton, Eyebrow, Mono, Pill, StepDots, calcPlates, platesSummary } from "@/components/ui/primitives";
+import { barWeight } from "@/lib/plates";
 import {
   applyAmrapBumpAction,
   completeSessionAction,
@@ -81,6 +82,7 @@ interface Props {
   rows: SetRow[];
   isBenchAmrapDay: boolean;
   benchTm: number | null;
+  units: "lb" | "kg";
   restMainSec: number;
   restAccessorySec: number;
   sessionExercises: SessionExerciseEntry[];
@@ -96,6 +98,7 @@ export default function ActiveWorkout({
   initialIdx,
   rows,
   benchTm,
+  units,
   restMainSec,
   restAccessorySec,
   sessionExercises,
@@ -115,7 +118,7 @@ export default function ActiveWorkout({
   const restStorageKey = `bp:rest:${sessionId}`;
   const [showFullTimer, setShowFullTimer] = useState(false);
   const [showPlates, setShowPlates] = useState(false);
-  const [bumpData, setBumpData] = useState<{ amrapReps: number; oldTm: number; newTm: number; bump: number; reason: string } | null>(null);
+  const [bumpData, setBumpData] = useState<{ amrapReps: number; amrapPercentage: number; oldTm: number; newTm: number; bump: number; reason: string } | null>(null);
   const [completed, setCompleted] = useState<Record<number, { reps: number; weight: number }>>({});
   const firstSetStorageKey = `bp:firstset:${sessionId}`;
   const [firstSetAt, setFirstSetAt] = useState<number | null>(sessionFirstSetAt);
@@ -125,7 +128,7 @@ export default function ActiveWorkout({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const setLogStorageKey = `bp:setlog:${sessionId}`;
   type BufferedSet = { repsCompleted: number; weightUsed: number; rir: number | null };
-  type PendingBump = { liftName: "bench_press"; amrapReps: number; applied: boolean | null };
+  type PendingBump = { liftName: "bench_press"; amrapReps: number; amrapPercentage: number; applied: boolean | null };
   const [setLog, setSetLog] = useState<Record<string, BufferedSet>>({});
   const [pendingBump, setPendingBump] = useState<PendingBump | null>(null);
   const [setLogHydrated, setSetLogHydrated] = useState(false);
@@ -369,8 +372,8 @@ export default function ActiveWorkout({
     (current != null && !current.requiresWeightInput && current.exerciseName === "Bench Press");
   const showPlateCalc = isBarbellRow && weightDisplay != null;
   const plates = useMemo(
-    () => (showPlateCalc && weightDisplay ? calcPlates(weightDisplay) : []),
-    [showPlateCalc, weightDisplay],
+    () => (showPlateCalc && weightDisplay ? calcPlates(weightDisplay, units) : []),
+    [showPlateCalc, weightDisplay, units],
   );
 
   // Group sets by exercise for the dot progress: dots reflect sets within current exercise group
@@ -432,9 +435,11 @@ export default function ActiveWorkout({
 
     // Bench AMRAP → bump modal (intent only; applied at session save)
     if (current.isAmrap && current.exerciseName === "Bench Press" && benchTm != null) {
-      const projected = applyAmrapBump(benchTm, reps);
+      const amrapPercentage = current.percentage ?? 80;
+      const projected = applyAmrapBump(benchTm, reps, { units, amrapPercentage });
       setBumpData({
         amrapReps: reps,
+        amrapPercentage,
         oldTm: benchTm,
         newTm: projected.newTm,
         bump: projected.bumpAmount,
@@ -511,6 +516,7 @@ export default function ActiveWorkout({
       await applyAmrapBumpAction({
         liftName: pendingBump.liftName,
         amrapReps: pendingBump.amrapReps,
+        amrapPercentage: pendingBump.amrapPercentage,
       }).catch(() => null);
     }
     if (kind === "complete") {
@@ -666,7 +672,12 @@ export default function ActiveWorkout({
 
       {/* Bench AMRAP → preview what each rep bracket does to TM, before the set */}
       {current.isAmrap && current.exerciseName === "Bench Press" && benchTm != null ? (
-        <AmrapTmPreview currentTm={benchTm} reps={reps} />
+        <AmrapTmPreview
+          currentTm={benchTm}
+          reps={reps}
+          units={units}
+          amrapPercentage={current.percentage ?? 80}
+        />
       ) : null}
 
       {/* Plate calc */}
@@ -698,7 +709,7 @@ export default function ActiveWorkout({
                 </svg>
               </div>
               <div className="flex-1">
-                <Eyebrow>Plates · 45 lb bar</Eyebrow>
+                <Eyebrow>Plates · {barWeight(units)} {units} bar</Eyebrow>
                 <Mono style={{ fontSize: 13, fontWeight: 600, color: BP.text, marginTop: 2 }} data-testid="plate-summary">
                   {platesSummary(plates)}
                 </Mono>
@@ -922,20 +933,23 @@ export default function ActiveWorkout({
       {bumpData ? (
         <AMRAPBumpModal
           amrapReps={bumpData.amrapReps}
+          amrapPercentage={bumpData.amrapPercentage}
           oldTm={bumpData.oldTm}
           newTm={bumpData.newTm}
           bump={bumpData.bump}
           reason={bumpData.reason}
+          units={units}
           onApply={() => {
             // Don't write to the DB yet — record intent for the session save.
             setPendingBump({
               liftName: "bench_press",
               amrapReps: bumpData.amrapReps,
+              amrapPercentage: bumpData.amrapPercentage,
               applied: bumpData.bump > 0,
             });
             toast.success(
               bumpData.bump > 0
-                ? `Bench TM → ${bumpData.newTm} lb on save`
+                ? `Bench TM → ${bumpData.newTm} ${units} on save`
                 : "TM held",
             );
             setBumpData(null);
@@ -945,6 +959,7 @@ export default function ActiveWorkout({
             setPendingBump({
               liftName: "bench_press",
               amrapReps: bumpData.amrapReps,
+              amrapPercentage: bumpData.amrapPercentage,
               applied: false,
             });
             setBumpData(null);
@@ -1633,10 +1648,21 @@ function LastSessionModal({
   );
 }
 
-function AmrapTmPreview({ currentTm, reps }: { currentTm: number; reps: number | null }) {
-  const projections = amrapTmProjections(currentTm);
+function AmrapTmPreview({
+  currentTm,
+  reps,
+  units,
+  amrapPercentage,
+}: {
+  currentTm: number;
+  reps: number | null;
+  units: "lb" | "kg";
+  amrapPercentage: number;
+}) {
+  const opts = { units, amrapPercentage };
+  const projections = amrapTmProjections(currentTm, opts);
   const activeBump =
-    reps != null && Number.isFinite(reps) ? applyAmrapBump(currentTm, reps).bumpAmount : null;
+    reps != null && Number.isFinite(reps) ? applyAmrapBump(currentTm, reps, opts).bumpAmount : null;
   return (
     <div className="px-5 pt-5">
       <div
@@ -1650,7 +1676,7 @@ function AmrapTmPreview({ currentTm, reps }: { currentTm: number; reps: number |
       >
         <div className="flex items-baseline justify-between mb-1.5">
           <Eyebrow>If you hit…</Eyebrow>
-          <span style={{ fontSize: 11, color: BP.textDim }}>Bench TM {currentTm} lb</span>
+          <span style={{ fontSize: 11, color: BP.textDim }}>Bench TM {currentTm} {units}</span>
         </div>
         <div className="flex flex-col gap-0.5">
           {projections.map((p) => {
@@ -1673,7 +1699,7 @@ function AmrapTmPreview({ currentTm, reps }: { currentTm: number; reps: number |
                 </span>
                 <span className="flex items-center gap-2">
                   <span style={{ color: p.result.bumpAmount > 0 ? BP.accent : BP.textDim }}>
-                    {p.result.bumpAmount > 0 ? `+${p.result.bumpAmount} lb` : "hold"}
+                    {p.result.bumpAmount > 0 ? `+${p.result.bumpAmount} ${units}` : "hold"}
                   </span>
                   <span aria-hidden style={{ color: BP.textFaint }}>
                     →
@@ -1681,7 +1707,7 @@ function AmrapTmPreview({ currentTm, reps }: { currentTm: number; reps: number |
                   <Mono style={{ color: isActive ? BP.text : BP.textMuted, fontWeight: 700 }}>
                     {p.result.newTm}
                   </Mono>
-                  <span style={{ color: BP.textDim, fontWeight: 500 }}>lb</span>
+                  <span style={{ color: BP.textDim, fontWeight: 500 }}>{units}</span>
                 </span>
               </div>
             );
@@ -2125,18 +2151,22 @@ function PlanSheet({
 
 function AMRAPBumpModal({
   amrapReps,
+  amrapPercentage,
   oldTm,
   newTm,
   bump,
   reason,
+  units,
   onApply,
   onHold,
 }: {
   amrapReps: number;
+  amrapPercentage: number;
   oldTm: number;
   newTm: number;
   bump: number;
   reason: string;
+  units: "lb" | "kg";
   onApply: () => void;
   onHold: () => void;
 }) {
@@ -2169,11 +2199,11 @@ function AMRAPBumpModal({
       >
         <div style={{ width: 40, height: 4, borderRadius: 2, background: "#3a3a3a", margin: "0 auto 14px" }} />
         <div className="flex items-center gap-2 mb-3.5">
-          <Pill data-testid="bump-pill">{isHold ? "Hold TM" : `+${bump} lb bump`}</Pill>
+          <Pill data-testid="bump-pill">{isHold ? "Hold TM" : `+${bump} ${units} bump`}</Pill>
           <Eyebrow>Bench TM</Eyebrow>
         </div>
         <div className="text-[24px] font-bold tracking-[-0.025em] leading-tight">
-          You hit <Mono style={{ color: BP.accent }}>{amrapReps} reps</Mono> at 80% TM
+          You hit <Mono style={{ color: BP.accent }}>{amrapReps} reps</Mono> at {amrapPercentage}% TM
         </div>
         <div className="text-sm mt-2 leading-snug" style={{ color: BP.textMuted }}>
           {reason}
@@ -2190,7 +2220,7 @@ function AMRAPBumpModal({
             >
               {oldTm}
             </Mono>
-            <Mono style={{ fontSize: 11, color: BP.textDim }}>lb</Mono>
+            <Mono style={{ fontSize: 11, color: BP.textDim }}>{units}</Mono>
           </div>
           <div className="flex items-center justify-center" style={{ width: 40 }}>
             <svg width={24} height={20} viewBox="0 0 24 20" fill="none">
@@ -2205,7 +2235,7 @@ function AMRAPBumpModal({
             >
               {newTm}
             </Mono>
-            <Mono style={{ fontSize: 11, color: BP.textDim }}>lb</Mono>
+            <Mono style={{ fontSize: 11, color: BP.textDim }}>{units}</Mono>
           </div>
         </div>
 

@@ -45,7 +45,7 @@ const ACCESSORY = {
     { name: "Cable Lateral Raise", muscle: "side-delts", sets: 2, reps: 13, rir: 0, notes: "Side delt, lengthened bias. Lean-away." },
   ],
   lower_a: [
-    { name: "Back Squat", muscle: "quads", sets: 4, reps: 5, rir: 2, notes: "75% 1RM linear progression", isMain: true, lift: "back_squat" as const },
+    { name: "Back Squat", muscle: "quads", sets: 4, reps: 5, rir: 2, notes: "Top set RIR 2 — add weight when all reps clean (manual)", isMain: true, lift: "back_squat" as const },
     { name: "Bulgarian Split Squat", muscle: "quads", sets: 2, reps: 9, rir: 1, notes: "Each leg" },
     { name: "Seated Leg Curl", muscle: "hamstrings", sets: 2, reps: 11, rir: 1, notes: "Maeo 2021." },
     { name: "Standing Calf Raise", muscle: "calves", sets: 4, reps: 10, rir: 1, notes: "Deep stretch, pause. Kassiano 2023." },
@@ -107,8 +107,9 @@ function benchExercise(
   const sets = getBenchPrescriptionForWeek(weekNumber, day);
   if (sets.length === 0) return [];
 
-  // Top "primary" set: largest percentage line (used for the main row)
-  const top = sets[0];
+  // Top "primary" set: the highest-percentage line in the wave. Wednesday plans
+  // are ordered light→heavy, so sets[0] would otherwise pick the warmup row.
+  const top = sets.reduce((max, s) => (s.percentage > max.percentage ? s : max), sets[0]);
   const isAmrap = sets.some((s) => s.isAmrap);
   return [
     {

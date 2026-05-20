@@ -246,6 +246,8 @@ export default async function ActivePage({
     equipment: e.equipment,
   }));
 
+  const units: "lb" | "kg" = settings?.units === "kg" ? "kg" : "lb";
+
   return (
     <ActiveWorkout
       sessionId={sessionId}
@@ -258,6 +260,7 @@ export default async function ActivePage({
       rows={rows}
       isBenchAmrapDay={isBenchAmrapDay}
       benchTm={benchTm}
+      units={units}
       restMainSec={settings?.defaultRestMainSec ?? 180}
       restAccessorySec={settings?.defaultRestAccessorySec ?? 90}
       sessionExercises={sessionExerciseList}
