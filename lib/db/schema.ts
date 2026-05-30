@@ -300,7 +300,33 @@ export const settings = pgTable("settings", {
   defaultRestAccessorySec: integer("default_rest_accessory_sec").default(90).notNull(),
   // Show the guided pre-workout warm-up screen before logging begins.
   enableWarmup: boolean("enable_warmup").default(false).notNull(),
+  // Show tempo guidance (pause / touch-and-go chips) on bench sets in the active workout.
+  showTempo: boolean("show_tempo").default(true).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// AI coaching digest — a short, prioritised "what to change" generated from the
+// user's volume/strength/trend data by an LLM. Cached per user: we keep one row
+// per generation, keyed by `inputHash` so an unchanged data picture reuses the
+// last digest instead of re-spending an API call. The latest row (by createdAt)
+// is what the Insights tab shows.
+export const coachDigests = pgTable(
+  "coach_digests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    model: text("model").notNull(),
+    // Hash of the CoachContext the digest was generated from; lets us skip
+    // regeneration when nothing material has changed.
+    inputHash: text("input_hash").notNull(),
+    headline: text("headline").notNull(),
+    // CoachItem[] — see lib/insights/coach.ts
+    items: jsonb("items").notNull(),
+  },
+  (t) => ({
+    userIdx: index("coach_digests_user_idx").on(t.userId, t.createdAt),
+  }),
+);
 
 export const _meta = sql`select 1`;

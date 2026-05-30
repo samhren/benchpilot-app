@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { db } from "@/lib/db";
-import { bodyWeightLogs, exercises, lifts, sessionExercises, settings, workoutSessions, workoutSets } from "@/lib/db/schema";
+import { bodyWeightLogs, coachDigests, exercises, lifts, sessionExercises, settings, workoutSessions, workoutSets } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/auth";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import {
@@ -10,6 +10,8 @@ import {
   type InsightSet,
   type LiftName,
 } from "@/lib/insights/muscle-model";
+import type { CoachDigest } from "@/lib/insights/coach";
+import { isGeminiConfigured } from "@/lib/ai/gemini";
 import InsightsClient from "./insights-client";
 
 export default async function InsightsPage() {
@@ -71,12 +73,32 @@ export default async function InsightsPage() {
     age: settingsRow?.age ?? null,
   });
 
+  const [latestDigest] = await db
+    .select()
+    .from(coachDigests)
+    .where(eq(coachDigests.userId, userId))
+    .orderBy(desc(coachDigests.createdAt))
+    .limit(1);
+
   return (
     <InsightsClient
       volume={volume}
       strength={strength}
       bodyWeight={bodyWeight}
       age={settingsRow?.age ?? null}
+      aiConfigured={isGeminiConfigured()}
+      hasData={sets.length > 0}
+      initialDigest={
+        latestDigest
+          ? {
+              digest: {
+                headline: latestDigest.headline,
+                items: latestDigest.items as CoachDigest["items"],
+              },
+              createdAt: (latestDigest.createdAt as Date).toISOString(),
+            }
+          : null
+      }
     />
   );
 }

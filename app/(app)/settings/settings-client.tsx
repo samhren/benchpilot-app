@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BP, BigButton, Eyebrow, Mono } from "@/components/ui/primitives";
 import {
@@ -10,6 +10,7 @@ import {
   setLiftOneRmAction,
   setProgramStartDateAction,
   setRestTimersAction,
+  setShowTempoAction,
   setTimezoneAction,
   setUnitsAction,
 } from "@/app/actions";
@@ -27,6 +28,7 @@ interface Props {
   restMainSec: number;
   restAccessorySec: number;
   enableWarmup: boolean;
+  showTempo: boolean;
 }
 
 const LIFT_LABELS: Record<string, string> = {
@@ -46,6 +48,7 @@ export default function SettingsClient({
   restMainSec,
   restAccessorySec,
   enableWarmup: initialEnableWarmup,
+  showTempo,
 }: Props) {
   const router = useRouter();
   const [enableWarmup, setEnableWarmup] = useState(initialEnableWarmup);
@@ -175,7 +178,7 @@ export default function SettingsClient({
 
       <Group label="Display">
         <Row title="Show tempo guidance on bench sets" sub="Pause/touch-and-go chips on the active workout" last={false}>
-          <TempoToggle />
+          <TempoToggle initial={showTempo} />
         </Row>
         <Row title="Guided warm-up" sub="Step through a pre-lift warm-up before logging starts" last>
           <Toggle
@@ -518,19 +521,12 @@ function NumberSave({
   );
 }
 
-function TempoToggle() {
-  const [on, setOn] = useState(true);
-  useEffect(() => {
-    try {
-      setOn(localStorage.getItem("bp:showTempo") !== "0");
-    } catch {}
-  }, []);
+function TempoToggle({ initial }: { initial: boolean }) {
+  const [on, setOn] = useState(initial);
   function toggle() {
     const next = !on;
     setOn(next);
-    try {
-      localStorage.setItem("bp:showTempo", next ? "1" : "0");
-    } catch {}
+    void setShowTempoAction(next).catch(() => setOn(!next));
   }
   return (
     <button

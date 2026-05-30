@@ -31,6 +31,7 @@ export default async function SettingsPage() {
       restMainSec={s?.defaultRestMainSec ?? 180}
       restAccessorySec={s?.defaultRestAccessorySec ?? 90}
       enableWarmup={s?.enableWarmup ?? false}
+      showTempo={s?.showTempo ?? true}
     />
   );
 }

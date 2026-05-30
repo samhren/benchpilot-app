@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import {
   bodyWeightLogs,
+  coachDigests,
   dayStatus,
   exercises,
   lifts,
@@ -22,6 +23,21 @@ import { resolveTrainingMax, resolveBenchPrescription } from "@/lib/programming/
 import { applyAmrapBump } from "@/lib/programming/amrap";
 import { isoDate } from "@/lib/program-state";
 import { requireUserId } from "@/lib/auth";
+import {
+  computeStrength,
+  computeVolumeByRegion,
+  type InsightSet,
+  type LiftName,
+} from "@/lib/insights/muscle-model";
+import {
+  buildCoachContext,
+  coachUserPrompt,
+  COACH_RESPONSE_SCHEMA,
+  COACH_SYSTEM_PROMPT,
+  hashCoachContext,
+  type CoachDigest,
+} from "@/lib/insights/coach";
+import { generateJson, geminiModel, GeminiError, isGeminiConfigured } from "@/lib/ai/gemini";
 
 // Every mutation is scoped to the signed-in user: inserts carry their userId,
 // and updates/deletes are constrained by it so a guessed row id from another
@@ -848,6 +864,23 @@ export async function setEnableWarmupAction(enabled: boolean) {
   return { ok: true as const };
 }
 
+export async function setShowTempoAction(enabled: boolean) {
+  const userId = await requireUserId();
+  const value = z.boolean().parse(enabled);
+  const [s] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
+  if (s) {
+    await db
+      .update(settings)
+      .set({ showTempo: value, updatedAt: new Date() })
+      .where(and(eq(settings.id, s.id), eq(settings.userId, userId)));
+  } else {
+    await db.insert(settings).values({ userId, showTempo: value });
+  }
+  revalidatePath("/settings");
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
 const ComparisonProfileSchema = z.object({
   age: z.number().int().min(13).max(100).nullable(),
   bodyWeightLb: z.number().positive().min(70).max(500).nullable(),
@@ -921,4 +954,159 @@ export async function _diag() {
     .from(workoutSessions)
     .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.completedAt)));
   return { count: Number(r[0]?.c ?? 0) };
+}
+
+/* ----------------------------- AI coaching digest -------------------------- */
+
+export type CoachDigestResult =
+  | { ok: true; cached: boolean; createdAt: string; model: string; digest: CoachDigest }
+  | { ok: false; reason: "not_configured" | "no_data" | "error"; message?: string };
+
+// Gather the same data the Insights tab renders, plus lift trends and adherence,
+// then ask Gemini for a short prioritized coaching digest. Cached per user by a
+// hash of the input snapshot: an unchanged data picture reuses the last digest
+// (no API spend) unless `force` is set. Degrades gracefully with no API key.
+export async function generateCoachDigestAction(
+  opts: { force?: boolean } = {},
+): Promise<CoachDigestResult> {
+  const userId = await requireUserId();
+
+  const [settingsRow] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
+  const [latestBodyWeight] = await db
+    .select()
+    .from(bodyWeightLogs)
+    .where(eq(bodyWeightLogs.userId, userId))
+    .orderBy(desc(bodyWeightLogs.date))
+    .limit(1);
+  const liftRows = await db
+    .select({ name: lifts.name, currentOneRm: lifts.currentOneRm })
+    .from(lifts)
+    .where(eq(lifts.userId, userId));
+  const [program] = await db
+    .select({ week: programs.currentWeek, block: programs.currentBlock })
+    .from(programs)
+    .where(and(eq(programs.userId, userId), eq(programs.status, "active")))
+    .limit(1);
+
+  const rows = await db
+    .select({
+      exerciseName: exercises.name,
+      muscleGroup: exercises.muscleGroup,
+      weight: workoutSets.weightUsed,
+      reps: workoutSets.repsCompleted,
+      rir: workoutSets.rir,
+      isWarmup: workoutSets.isWarmup,
+      completedAt: workoutSets.completedAt,
+    })
+    .from(workoutSets)
+    .innerJoin(workoutSessions, eq(workoutSets.sessionId, workoutSessions.id))
+    .innerJoin(sessionExercises, eq(workoutSets.sessionExerciseId, sessionExercises.id))
+    .innerJoin(exercises, eq(workoutSets.exerciseId, exercises.id))
+    .where(
+      and(
+        eq(workoutSets.userId, userId),
+        isNotNull(workoutSessions.completedAt),
+        isNotNull(workoutSets.weightUsed),
+        isNotNull(workoutSets.repsCompleted),
+      ),
+    );
+
+  if (rows.length === 0) {
+    return { ok: false, reason: "no_data" };
+  }
+
+  const sets: InsightSet[] = rows.map((r) => ({
+    exerciseName: r.exerciseName,
+    muscleGroup: r.muscleGroup,
+    weight: r.weight ?? 0,
+    reps: r.reps ?? 0,
+    rir: r.rir,
+    isWarmup: r.isWarmup,
+    completedAt: new Date(r.completedAt as Date).toISOString(),
+  }));
+
+  const bodyWeight = settingsRow?.comparisonBodyWeightLb ?? latestBodyWeight?.weightLb ?? null;
+  const liftOneRms: Partial<Record<LiftName, number | null>> = {};
+  for (const l of liftRows) liftOneRms[l.name as LiftName] = l.currentOneRm;
+
+  const volume = computeVolumeByRegion(sets);
+  const strength = computeStrength(sets, {
+    lifts: liftOneRms,
+    bodyWeightLb: bodyWeight,
+    age: settingsRow?.age ?? null,
+  });
+
+  const ctx = buildCoachContext({
+    sets,
+    volume,
+    strength,
+    bodyWeightLb: bodyWeight,
+    age: settingsRow?.age ?? null,
+    program: program ? { week: program.week, block: program.block } : null,
+  });
+  const inputHash = hashCoachContext(ctx);
+
+  // Reuse the latest digest when the data picture is unchanged.
+  const [latest] = await db
+    .select()
+    .from(coachDigests)
+    .where(eq(coachDigests.userId, userId))
+    .orderBy(desc(coachDigests.createdAt))
+    .limit(1);
+  if (!opts.force && latest && latest.inputHash === inputHash) {
+    return {
+      ok: true,
+      cached: true,
+      createdAt: (latest.createdAt as Date).toISOString(),
+      model: latest.model,
+      digest: { headline: latest.headline, items: latest.items as CoachDigest["items"] },
+    };
+  }
+
+  if (!isGeminiConfigured()) {
+    return { ok: false, reason: "not_configured" };
+  }
+
+  let digest: CoachDigest;
+  try {
+    digest = await generateJson<CoachDigest>({
+      system: COACH_SYSTEM_PROMPT,
+      prompt: coachUserPrompt(ctx),
+      schema: COACH_RESPONSE_SCHEMA,
+    });
+  } catch (e) {
+    if (e instanceof GeminiError && e.reason === "not_configured") {
+      return { ok: false, reason: "not_configured" };
+    }
+    return { ok: false, reason: "error", message: e instanceof Error ? e.message : "Unknown error" };
+  }
+
+  // Defensive: clamp to the shape the UI expects.
+  const items = (Array.isArray(digest.items) ? digest.items : [])
+    .slice(0, 4)
+    .map((it) => ({
+      priority: (["high", "medium", "low"] as const).includes(it.priority) ? it.priority : "medium",
+      title: String(it.title ?? "").slice(0, 120),
+      detail: String(it.detail ?? "").slice(0, 400),
+      ...(it.tag ? { tag: String(it.tag).slice(0, 40) } : {}),
+    }));
+  const clean: CoachDigest = {
+    headline: String(digest.headline ?? "").slice(0, 200),
+    items,
+  };
+
+  const model = geminiModel();
+  const [saved] = await db
+    .insert(coachDigests)
+    .values({ userId, model, inputHash, headline: clean.headline, items: clean.items })
+    .returning({ createdAt: coachDigests.createdAt });
+
+  revalidatePath("/insights");
+  return {
+    ok: true,
+    cached: false,
+    createdAt: (saved.createdAt as Date).toISOString(),
+    model,
+    digest: clean,
+  };
 }

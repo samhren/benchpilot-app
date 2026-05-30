@@ -264,6 +264,7 @@ export default async function ActivePage({
       restMainSec={settings?.defaultRestMainSec ?? 180}
       restAccessorySec={settings?.defaultRestAccessorySec ?? 90}
       enableWarmup={settings?.enableWarmup ?? false}
+      showTempo={settings?.showTempo ?? true}
       sessionExercises={sessionExerciseList}
       library={library}
     />
