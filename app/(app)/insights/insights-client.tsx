@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ReactNode } from "react";
-import { toast } from "sonner";
+import { useMemo, useState, type ReactNode } from "react";
 import { BP, Card, Eyebrow, Mono, Pill } from "@/components/ui/primitives";
 import {
   MUSCLE_MODEL_SOURCE,
@@ -10,16 +9,8 @@ import {
   type StrengthGroupResult,
   type StrengthLevel,
 } from "@/lib/insights/muscle-model";
-import type { CoachDigest, CoachPriority } from "@/lib/insights/coach";
-import { generateCoachDigestAction } from "@/app/actions";
 
 type Tab = "strength" | "volume";
-
-const PRIORITY_COLOR: Record<CoachPriority, string> = {
-  high: "#ff4d4d",
-  medium: "#ff8a3a",
-  low: "#34d399",
-};
 
 const LEVEL_COLOR: Record<StrengthLevel, string> = {
   Beginner: "#6b7280",
@@ -44,17 +35,13 @@ export default function InsightsClient({
   strength,
   bodyWeight,
   age,
-  aiConfigured,
-  hasData,
-  initialDigest,
+  coachSlot,
 }: {
   volume: RegionVolume[];
   strength: StrengthGroupResult[];
   bodyWeight: number | null;
   age: number | null;
-  aiConfigured: boolean;
-  hasData: boolean;
-  initialDigest: { digest: CoachDigest; createdAt: string } | null;
+  coachSlot: ReactNode;
 }) {
   const [tab, setTab] = useState<Tab>("strength");
 
@@ -87,7 +74,7 @@ export default function InsightsClient({
         </Mono>
       </div>
 
-      <CoachCard aiConfigured={aiConfigured} hasData={hasData} initial={initialDigest} />
+      {coachSlot}
 
       {/* Tab switch */}
       <div
@@ -135,156 +122,6 @@ export default function InsightsClient({
         bodyweight{age ? "/age" : ""}-scaled. Model {MUSCLE_MODEL_SOURCE.updated}.
       </div>
     </div>
-  );
-}
-
-/* -------------------------------- Coach -------------------------------- */
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
-
-function CoachCard({
-  aiConfigured,
-  hasData,
-  initial,
-}: {
-  aiConfigured: boolean;
-  hasData: boolean;
-  initial: { digest: CoachDigest; createdAt: string } | null;
-}) {
-  const [state, setState] = useState(initial);
-  const [pending, startTransition] = useTransition();
-
-  const run = (force: boolean) => {
-    startTransition(async () => {
-      const res = await generateCoachDigestAction({ force });
-      if (res.ok) {
-        setState({ digest: res.digest, createdAt: res.createdAt });
-        if (!res.cached) toast.success("Coaching updated");
-        else toast("No new training data — showing the latest read");
-      } else if (res.reason === "not_configured") {
-        toast.error("AI coaching isn't set up yet (missing API key)");
-      } else if (res.reason === "no_data") {
-        toast("Log a few sessions first — nothing to coach on yet");
-      } else {
-        toast.error("Couldn't generate coaching — try again");
-      }
-    });
-  };
-
-  const headerRow = (right: ReactNode) => (
-    <div className="flex items-center justify-between" style={{ gap: 10, marginBottom: state ? 10 : 0 }}>
-      <Eyebrow style={{ display: "flex", alignItems: "center", gap: 7 }}>
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: 999,
-            background: BP.accent,
-            display: "inline-block",
-          }}
-        />
-        AI Coach
-      </Eyebrow>
-      {right}
-    </div>
-  );
-
-  const refreshBtn = (label: string) => (
-    <button
-      onClick={() => run(state ? true : false)}
-      disabled={pending}
-      style={{
-        border: `1px solid ${BP.border}`,
-        background: "transparent",
-        color: pending ? BP.textDim : BP.text,
-        fontSize: 12,
-        fontWeight: 600,
-        padding: "6px 12px",
-        borderRadius: 999,
-        cursor: pending ? "default" : "pointer",
-      }}
-    >
-      {pending ? "Thinking…" : label}
-    </button>
-  );
-
-  // Empty state — no digest yet.
-  if (!state) {
-    return (
-      <Card padding={14} style={{ borderRadius: 16, marginBottom: 14 }}>
-        {headerRow(null)}
-        <div style={{ fontSize: 13, color: BP.textDim, lineHeight: 1.5, marginBottom: 12 }}>
-          {hasData
-            ? "Get a quick read on your week — what to push, what to pull back, and where your volume is off."
-            : "Log a few sessions and your coach will spot what to fix."}
-        </div>
-        {refreshBtn("Generate coaching")}
-        {!aiConfigured ? (
-          <div style={{ fontSize: 10, color: BP.textFaint, marginTop: 8 }}>
-            Needs a Gemini API key (GEMINI_API_KEY) to be configured.
-          </div>
-        ) : null}
-      </Card>
-    );
-  }
-
-  return (
-    <Card padding={14} style={{ borderRadius: 16, marginBottom: 14 }}>
-      {headerRow(refreshBtn("Refresh"))}
-      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4, marginBottom: 10 }}>
-        {state.digest.headline}
-      </div>
-      <div className="grid" style={{ gap: 8 }}>
-        {state.digest.items.map((it, i) => {
-          const color = PRIORITY_COLOR[it.priority];
-          return (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                gap: 10,
-                padding: "10px 12px",
-                borderRadius: 12,
-                background: BP.surface2,
-                border: `1px solid ${BP.borderSoft}`,
-              }}
-            >
-              <span
-                style={{
-                  width: 3,
-                  borderRadius: 2,
-                  background: color,
-                  flexShrink: 0,
-                  alignSelf: "stretch",
-                }}
-              />
-              <div style={{ minWidth: 0 }}>
-                <div className="flex items-center" style={{ gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 650 }}>{it.title}</span>
-                  {it.tag ? (
-                    <Pill color={color} style={{ fontSize: 9, padding: "2px 7px" }}>
-                      {it.tag}
-                    </Pill>
-                  ) : null}
-                </div>
-                <div style={{ fontSize: 12.5, color: BP.textDim, lineHeight: 1.45 }}>{it.detail}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ fontSize: 10, color: BP.textFaint, marginTop: 9 }}>
-        Generated {relativeTime(state.createdAt)} · AI-generated, use judgment
-      </div>
-    </Card>
   );
 }
 
