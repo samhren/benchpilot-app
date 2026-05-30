@@ -9,14 +9,14 @@ import {
   getInProgressSession,
   getLastCompletedSessionAt,
   getMissedDays,
-  getNextScheduledDay,
+  getScheduledDayCandidate,
   getProgramExercises,
   getSettings,
 } from "@/lib/queries";
 import {
   LONG_GAP_DAYS,
-  computeProgramWeek,
   dayOfWeekInTz,
+  getProgramProgress,
   shouldSuggestLongGapDeload,
 } from "@/lib/program-state";
 import { TimezoneBootstrap } from "@/components/timezone-bootstrap";
@@ -35,10 +35,12 @@ export default async function Dashboard() {
   const settingsRow = await getSettings();
   const tz = settingsRow?.timezone ?? "UTC";
   const today = new Date();
-  const week = computeProgramWeek(program.startDate, today, tz);
+  const progress = getProgramProgress(program.startDate, today, tz, program.totalWeeks);
+  const week = progress.week;
   const dow = dayOfWeekInTz(today, tz);
 
-  const next = await getNextScheduledDay(program.id);
+  const candidate = await getScheduledDayCandidate(program.id, today, tz);
+  const next = candidate?.pd ?? null;
   const inProgress = await getInProgressSession();
   const missed = await getMissedDays(program.id, today, tz);
   const lastCompletedAt = await getLastCompletedSessionAt();
@@ -49,7 +51,6 @@ export default async function Dashboard() {
   const lifts = await getAllLifts();
   const bench = lifts.find((l) => l.name === "bench_press") ?? null;
   const squat = lifts.find((l) => l.name === "back_squat") ?? null;
-  const dl = lifts.find((l) => l.name === "deadlift") ?? null;
 
   const benchTm = bench?.trainingMax ?? null;
   const bw = await getBodyWeightsSinceDays(28);
@@ -148,9 +149,19 @@ export default async function Dashboard() {
         />
         <div style={{ position: "relative" }}>
           <div className="flex items-center gap-2">
-            {next ? <Pill>Today</Pill> : <Pill color={BP.textMuted}>Rest</Pill>}
+            {next ? (
+              <Pill color={candidate?.reason === "missed" ? "#ffaa3a" : BP.accent}>
+                {candidate?.label ?? "Today"}
+              </Pill>
+            ) : (
+              <Pill color={BP.textMuted}>Rest</Pill>
+            )}
             <span className="text-xs" style={{ color: BP.textMuted }}>
-              {next ? "≈ 48 min" : "no session"}
+              {next
+                ? candidate?.reason === "missed"
+                  ? `scheduled ${candidate?.scheduledDate ?? ""}`
+                  : "≈ 48 min"
+                : "no session"}
             </span>
           </div>
           <div className="mt-3.5 text-[26px] font-bold tracking-[-0.025em] leading-tight">
@@ -235,7 +246,7 @@ export default async function Dashboard() {
             tap to see history
           </span>
         </div>
-        <div className="grid gap-2" style={{ gridTemplateColumns: "1.4fr 1fr 1fr" }}>
+        <div className="grid gap-2" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
           <Link href="/lifts?l=bench_press" style={{ textDecoration: "none" }}>
             <StatCard
               testId="bench-tm-card"
@@ -245,10 +256,11 @@ export default async function Dashboard() {
             />
           </Link>
           <Link href="/lifts?l=back_squat" style={{ textDecoration: "none" }}>
-            <StatCard label="Squat" value={squat?.currentOneRm ?? "—"} sub="1RM" />
-          </Link>
-          <Link href="/lifts?l=deadlift" style={{ textDecoration: "none" }}>
-            <StatCard label="Deadlift" value={dl?.currentOneRm ?? "—"} sub="1RM" />
+            <StatCard
+              label="Squat"
+              value={squat?.currentOneRm ?? "—"}
+              sub={squat?.currentOneRm ? "75% 1RM programmed" : "set 1RM in Settings"}
+            />
           </Link>
         </div>
       </div>

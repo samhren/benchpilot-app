@@ -294,8 +294,12 @@ export const settings = pgTable("settings", {
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   units: text("units").default("lb").notNull(),
   timezone: text("timezone").default("UTC").notNull(),
+  age: integer("age"),
+  comparisonBodyWeightLb: real("comparison_body_weight_lb"),
   defaultRestMainSec: integer("default_rest_main_sec").default(180).notNull(),
   defaultRestAccessorySec: integer("default_rest_accessory_sec").default(90).notNull(),
+  // Show the guided pre-workout warm-up screen before logging begins.
+  enableWarmup: boolean("enable_warmup").default(false).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

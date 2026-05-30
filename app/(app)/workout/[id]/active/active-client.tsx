@@ -28,6 +28,8 @@ import {
 } from "@/lib/programming/tempo";
 import { restSecondsFor } from "@/lib/programming/rest";
 import { applyAmrapBump, amrapTmProjections } from "@/lib/programming/amrap";
+import { getWarmupRoutine } from "@/lib/warmup";
+import WarmupScreen from "./warmup-screen";
 
 export interface SetRow {
   kind: "main" | "accessory";
@@ -85,6 +87,7 @@ interface Props {
   units: "lb" | "kg";
   restMainSec: number;
   restAccessorySec: number;
+  enableWarmup: boolean;
   sessionExercises: SessionExerciseEntry[];
   library: LibraryExercise[];
 }
@@ -101,10 +104,22 @@ export default function ActiveWorkout({
   units,
   restMainSec,
   restAccessorySec,
+  enableWarmup,
   sessionExercises,
   library,
 }: Props) {
   const router = useRouter();
+  // Guided warm-up runs before logging, only on a fresh session (nothing logged
+  // yet) and only when the user enabled it. Tracked in component state — see
+  // CLAUDE.md: localStorage isn't durable on this home-screen PWA, and the
+  // server (firstSetAt / logged sets) is the source of truth on resume.
+  const [showWarmup, setShowWarmup] = useState(
+    () => enableWarmup && sessionFirstSetAt == null && initialIdx === 0,
+  );
+  const [warmupStartedAt, setWarmupStartedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (showWarmup && warmupStartedAt == null) setWarmupStartedAt(Date.now());
+  }, [showWarmup, warmupStartedAt]);
   const [idx, setIdx] = useState(() => Math.min(initialIdx, Math.max(0, rows.length - 1)));
   const [showPlan, setShowPlan] = useState(false);
   const [showLast, setShowLast] = useState(false);
@@ -356,8 +371,11 @@ export default function ActiveWorkout({
   }
 
   const elapsedDisplay = (() => {
-    if (firstSetAt == null) return "0:00";
-    const dt = Math.max(0, now - firstSetAt);
+    // Prefer the first working set; fall back to when the warm-up began so the
+    // session clock starts ticking at warm-up, per the workout timer behaviour.
+    const anchor = firstSetAt ?? warmupStartedAt;
+    if (anchor == null) return "0:00";
+    const dt = Math.max(0, now - anchor);
     const m = Math.floor(dt / 60000);
     const s = Math.floor((dt % 60000) / 1000);
     return `${m}:${String(s).padStart(2, "0")}`;
@@ -399,6 +417,19 @@ export default function ActiveWorkout({
           </BigButton>
         </div>
       </main>
+    );
+  }
+
+  if (showWarmup) {
+    return (
+      <WarmupScreen
+        routine={getWarmupRoutine(sessionType)}
+        sessionLabel={sessionLabel}
+        startedAt={warmupStartedAt ?? now}
+        beep={beep}
+        onComplete={() => setShowWarmup(false)}
+        onSkip={() => setShowWarmup(false)}
+      />
     );
   }
 
@@ -517,6 +548,7 @@ export default function ActiveWorkout({
         liftName: pendingBump.liftName,
         amrapReps: pendingBump.amrapReps,
         amrapPercentage: pendingBump.amrapPercentage,
+        sessionId,
       }).catch(() => null);
     }
     if (kind === "complete") {

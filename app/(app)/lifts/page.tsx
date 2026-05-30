@@ -11,7 +11,7 @@ import {
 } from "@/lib/db/schema";
 import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { getActiveProgram, getAllProgramDays, getSettings } from "@/lib/queries";
-import { computeProgramWeek, isoDate, scheduledDateForDay } from "@/lib/program-state";
+import { getProgramProgress, isoDate, scheduledDateForDay } from "@/lib/program-state";
 import { computeLiftStats, type LiftStats, type StatSet } from "@/lib/lift-stats";
 import { requireUserId } from "@/lib/auth";
 import LiftsClient, {
@@ -269,10 +269,11 @@ export default async function LiftsPage({
       total += 1;
       if (completedDayIds.has(pd.id)) done += 1;
     }
+    const progress = getProgramProgress(program.startDate, now, tz, program.totalWeeks);
     programCtx = {
-      week: computeProgramWeek(program.startDate, now, tz),
+      week: progress.week,
       totalWeeks: program.totalWeeks,
-      block: program.currentBlock,
+      block: progress.blockLabel,
       adherenceDone: done,
       adherenceTotal: total,
     };

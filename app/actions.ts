@@ -238,12 +238,8 @@ async function rebuildSnapshot(
     )
     .orderBy(programExercises.orderIndex);
 
-  const benchLift = await db
-    .select()
-    .from(lifts)
-    .where(and(eq(lifts.userId, userId), eq(lifts.name, "bench_press")))
-    .limit(1);
-  const benchTm = benchLift[0]?.trainingMax ?? null;
+  const liftRows = await db.select().from(lifts).where(eq(lifts.userId, userId));
+  const liftById = new Map(liftRows.map((l) => [l.id, l]));
 
   if (!tmplRows.length) return;
 
@@ -257,8 +253,12 @@ async function rebuildSnapshot(
   await db.insert(sessionExercises).values(
     tmplRows.map((pe) => {
       let weightPrescribed: number | null = null;
-      if (pe.percentageOfTm != null && benchTm != null) {
-        weightPrescribed = resolveBenchPrescription(pe.percentageOfTm * factor, benchTm);
+      const lift = pe.liftId ? liftById.get(pe.liftId) : null;
+      if (lift?.name === "back_squat" && lift.currentOneRm != null) {
+        const pct = pe.percentageOfTm ?? 75;
+        weightPrescribed = resolveBenchPrescription(pct * factor, lift.currentOneRm);
+      } else if (pe.percentageOfTm != null && lift?.trainingMax != null) {
+        weightPrescribed = resolveBenchPrescription(pe.percentageOfTm * factor, lift.trainingMax);
       }
       let wavePlan: unknown = pe.wavePlan;
       if (Array.isArray(pe.wavePlan) && factor !== 1) {
@@ -400,6 +400,7 @@ export async function completeSessionAction(sessionId: string) {
     .update(workoutSessions)
     .set({ completedAt: new Date(), status: "completed" })
     .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)));
+  await maybeApplySquatProgression(userId, sessionId);
   await db
     .update(sessionExercises)
     .set({ status: "skipped" })
@@ -413,6 +414,71 @@ export async function completeSessionAction(sessionId: string) {
   // Layout-level revalidation so the resume banner re-fetches and clears.
   revalidatePath("/", "layout");
   return { ok: true as const };
+}
+
+async function maybeApplySquatProgression(userId: string, sessionId: string) {
+  const [squat] = await db
+    .select()
+    .from(lifts)
+    .where(and(eq(lifts.userId, userId), eq(lifts.name, "back_squat")))
+    .limit(1);
+  if (!squat || squat.currentOneRm == null) return;
+
+  const note = `Squat linear +5 after clean Lower A · session ${sessionId}`;
+  const [already] = await db
+    .select({ id: tmHistory.id })
+    .from(tmHistory)
+    .where(and(eq(tmHistory.userId, userId), eq(tmHistory.liftId, squat.id), eq(tmHistory.notes, note)))
+    .limit(1);
+  if (already) return;
+
+  const rows = await db
+    .select({
+      repsPrescribed: workoutSets.repsPrescribed,
+      repsCompleted: workoutSets.repsCompleted,
+      weightPrescribed: workoutSets.weightPrescribed,
+      weightUsed: workoutSets.weightUsed,
+      rir: workoutSets.rir,
+    })
+    .from(workoutSets)
+    .innerJoin(sessionExercises, eq(workoutSets.sessionExerciseId, sessionExercises.id))
+    .where(
+      and(
+        eq(workoutSets.userId, userId),
+        eq(workoutSets.sessionId, sessionId),
+        eq(sessionExercises.liftId, squat.id),
+      ),
+    );
+
+  if (rows.length === 0) return;
+  const clean = rows.every((r) => {
+    if (r.repsPrescribed == null || r.repsCompleted == null) return false;
+    if (r.weightPrescribed == null || r.weightUsed == null) return false;
+    return r.repsCompleted >= r.repsPrescribed && r.weightUsed >= r.weightPrescribed && (r.rir ?? 0) >= 1;
+  });
+  if (!clean) return;
+
+  const oldWorkingWeight = resolveBenchPrescription(75, squat.currentOneRm);
+  const nextWorkingWeight = oldWorkingWeight + 5;
+  const nextOneRm = Math.round((nextWorkingWeight / 0.75) * 10) / 10;
+  const nextTm = resolveTrainingMax(nextOneRm);
+
+  await db
+    .update(lifts)
+    .set({
+      currentOneRm: nextOneRm,
+      trainingMax: nextTm,
+      lastTmBumpAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(lifts.id, squat.id), eq(lifts.userId, userId)));
+  await db.insert(tmHistory).values({
+    userId,
+    liftId: squat.id,
+    trainingMax: nextTm,
+    reason: "manual",
+    notes: note,
+  });
 }
 
 export async function discardSessionAction(sessionId: string) {
@@ -638,11 +704,15 @@ const AmrapApplySchema = z.object({
   liftName: z.enum(["bench_press", "back_squat", "deadlift", "overhead_press"]),
   amrapReps: z.number().int().nonnegative(),
   amrapPercentage: z.number().min(50).max(100).optional(),
+  sessionId: z.string().uuid().optional(),
 });
 
 export async function applyAmrapBumpAction(input: z.infer<typeof AmrapApplySchema>) {
   const userId = await requireUserId();
-  const { liftName, amrapReps, amrapPercentage } = AmrapApplySchema.parse(input);
+  const { liftName, amrapReps, amrapPercentage, sessionId } = AmrapApplySchema.parse(input);
+  if (sessionId && !(await ownsSession(userId, sessionId))) {
+    return { ok: false as const, error: "Session not found" };
+  }
   const [lift] = await db
     .select()
     .from(lifts)
@@ -655,6 +725,15 @@ export async function applyAmrapBumpAction(input: z.infer<typeof AmrapApplySchem
     .where(eq(settings.userId, userId))
     .limit(1);
   const units: "lb" | "kg" = settingsRow?.units === "kg" ? "kg" : "lb";
+  const note = sessionId ? `Bench AMRAP bump · session ${sessionId}` : null;
+  if (note) {
+    const [existing] = await db
+      .select({ id: tmHistory.id })
+      .from(tmHistory)
+      .where(and(eq(tmHistory.userId, userId), eq(tmHistory.liftId, lift.id), eq(tmHistory.notes, note)))
+      .limit(1);
+    if (existing) return { ok: true as const, applied: false, idempotent: true };
+  }
   const result = applyAmrapBump(lift.trainingMax, amrapReps, { units, amrapPercentage });
   if (result.bumpAmount === 0) {
     return { ok: true as const, applied: false, ...result };
@@ -669,7 +748,7 @@ export async function applyAmrapBumpAction(input: z.infer<typeof AmrapApplySchem
     trainingMax: result.newTm,
     reason: "amrap_bump",
     amrapReps,
-    notes: result.reason,
+    notes: note ?? result.reason,
   });
   revalidatePath("/", "layout");
   return { ok: true as const, applied: true, ...result };
@@ -720,6 +799,94 @@ export async function setTimezoneAction(timezone: string) {
   } else {
     await db.insert(settings).values({ userId, timezone: tz });
   }
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
+const RestTimersSchema = z.object({
+  mainSec: z.number().int().min(60).max(600),
+  accessorySec: z.number().int().min(60).max(600),
+});
+
+export async function setRestTimersAction(input: z.infer<typeof RestTimersSchema>) {
+  const userId = await requireUserId();
+  const { mainSec, accessorySec } = RestTimersSchema.parse(input);
+  const [s] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
+  if (s) {
+    await db
+      .update(settings)
+      .set({
+        defaultRestMainSec: mainSec,
+        defaultRestAccessorySec: accessorySec,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(settings.id, s.id), eq(settings.userId, userId)));
+  } else {
+    await db.insert(settings).values({
+      userId,
+      defaultRestMainSec: mainSec,
+      defaultRestAccessorySec: accessorySec,
+    });
+  }
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
+export async function setEnableWarmupAction(enabled: boolean) {
+  const userId = await requireUserId();
+  const [s] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
+  if (s) {
+    await db
+      .update(settings)
+      .set({ enableWarmup: enabled, updatedAt: new Date() })
+      .where(and(eq(settings.id, s.id), eq(settings.userId, userId)));
+  } else {
+    await db.insert(settings).values({ userId, enableWarmup: enabled });
+  }
+  revalidatePath("/settings");
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
+const ComparisonProfileSchema = z.object({
+  age: z.number().int().min(13).max(100).nullable(),
+  bodyWeightLb: z.number().positive().min(70).max(500).nullable(),
+});
+
+export async function setComparisonProfileAction(input: z.infer<typeof ComparisonProfileSchema>) {
+  const userId = await requireUserId();
+  const { age, bodyWeightLb } = ComparisonProfileSchema.parse(input);
+  const [s] = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
+  if (s) {
+    await db
+      .update(settings)
+      .set({
+        age,
+        comparisonBodyWeightLb: bodyWeightLb,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(settings.id, s.id), eq(settings.userId, userId)));
+  } else {
+    await db.insert(settings).values({ userId, age, comparisonBodyWeightLb: bodyWeightLb });
+  }
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
+export async function setProgramStartDateAction(startDate: string) {
+  const userId = await requireUserId();
+  const parsed = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).safeParse(startDate);
+  if (!parsed.success) return { ok: false as const, error: "Invalid date" };
+  const [p] = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.userId, userId), eq(programs.status, "active")))
+    .limit(1);
+  if (!p) return { ok: false as const, error: "Program not found" };
+  await db
+    .update(programs)
+    .set({ startDate: parsed.data })
+    .where(and(eq(programs.id, p.id), eq(programs.userId, userId)));
   revalidatePath("/", "layout");
   return { ok: true as const };
 }

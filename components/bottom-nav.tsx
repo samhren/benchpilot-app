@@ -23,6 +23,15 @@ const TAB_ICONS: Record<string, React.ReactNode> = {
       <line x1="7" y1="12" x2="17" y2="12" />
     </g>
   ),
+  insights: (
+    <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 18V6" />
+      <path d="M9 18v-5" />
+      <path d="M14 18V9" />
+      <path d="M19 18V4" />
+      <path d="M3 18h18" />
+    </g>
+  ),
   program: (
     <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinejoin="round">
       <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -49,8 +58,8 @@ const TAB_ICONS: Record<string, React.ReactNode> = {
 
 const TABS: { id: string; href: string; label: string }[] = [
   { id: "home", href: "/", label: "Home" },
-  { id: "workout", href: "/workout", label: "Workout" },
   { id: "program", href: "/program", label: "Program" },
+  { id: "insights", href: "/insights", label: "Insights" },
   { id: "lifts", href: "/lifts", label: "Lifts" },
   { id: "settings", href: "/settings", label: "Settings" },
 ];
@@ -66,6 +75,7 @@ export function BottomNav() {
   if (pathname === "/") active = "home";
   else if (pathname.startsWith("/workout")) active = "workout";
   else if (pathname.startsWith("/program")) active = "program";
+  else if (pathname.startsWith("/insights")) active = "insights";
   else if (pathname.startsWith("/lifts")) active = "lifts";
   else if (pathname.startsWith("/settings")) active = "settings";
 

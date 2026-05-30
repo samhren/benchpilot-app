@@ -3,25 +3,59 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BP, BigButton, Eyebrow, Mono } from "@/components/ui/primitives";
-import { resetProgramAction, setLiftOneRmAction, setUnitsAction } from "@/app/actions";
+import {
+  resetProgramAction,
+  setComparisonProfileAction,
+  setEnableWarmupAction,
+  setLiftOneRmAction,
+  setProgramStartDateAction,
+  setRestTimersAction,
+  setTimezoneAction,
+  setUnitsAction,
+} from "@/app/actions";
 import { toast } from "sonner";
 
 interface Props {
   lifts: Array<{ name: string; currentOneRm: number | null; trainingMax: number | null }>;
   currentWeek: number;
+  currentBlock: string;
+  startDate: string;
   units: "lb" | "kg";
+  timezone: string;
+  age: number | null;
+  comparisonBodyWeightLb: number | null;
+  restMainSec: number;
+  restAccessorySec: number;
+  enableWarmup: boolean;
 }
 
 const LIFT_LABELS: Record<string, string> = {
   bench_press: "Bench press",
   back_squat: "Back squat",
-  deadlift: "Deadlift",
-  overhead_press: "Overhead press",
 };
 
-export default function SettingsClient({ lifts, currentWeek, units: initialUnits }: Props) {
+export default function SettingsClient({
+  lifts,
+  currentWeek,
+  currentBlock,
+  startDate,
+  units: initialUnits,
+  timezone: initialTimezone,
+  age: initialAge,
+  comparisonBodyWeightLb: initialComparisonBodyWeight,
+  restMainSec,
+  restAccessorySec,
+  enableWarmup: initialEnableWarmup,
+}: Props) {
   const router = useRouter();
+  const [enableWarmup, setEnableWarmup] = useState(initialEnableWarmup);
   const [units, setUnits] = useState(initialUnits);
+  const [timezone, setTimezone] = useState(initialTimezone);
+  const [age, setAge] = useState(String(initialAge ?? ""));
+  const [comparisonBodyWeight, setComparisonBodyWeight] = useState(String(initialComparisonBodyWeight ?? ""));
+  const [mainRest, setMainRest] = useState(String(Math.round(restMainSec / 60)));
+  const [accessoryRest, setAccessoryRest] = useState(String(Math.round(restAccessorySec / 60)));
+  const [programStart, setProgramStart] = useState(startDate);
   const [pending, start] = useTransition();
 
   return (
@@ -88,14 +122,169 @@ export default function SettingsClient({ lifts, currentWeek, units: initialUnits
         </Row>
       </Group>
 
+      <Group label="Comparison Profile">
+        <Row title="Age" sub="Used for strength standards" last={false}>
+          <NumberSave
+            value={age}
+            onChange={setAge}
+            suffix="yr"
+            disabled={pending}
+            min={13}
+            max={100}
+            onSave={() =>
+              start(async () => {
+                const nextAge = parseInt(age, 10);
+                const nextBodyWeight = parseFloat(comparisonBodyWeight);
+                const r = await setComparisonProfileAction({
+                  age: Number.isFinite(nextAge) ? nextAge : null,
+                  bodyWeightLb: Number.isFinite(nextBodyWeight) ? nextBodyWeight : null,
+                });
+                if (r.ok) {
+                  toast.success("Comparison profile updated");
+                  router.refresh();
+                }
+              })
+            }
+          />
+        </Row>
+        <Row title="Bodyweight" sub="Used for strength standards" last>
+          <NumberSave
+            value={comparisonBodyWeight}
+            onChange={setComparisonBodyWeight}
+            suffix="lb"
+            disabled={pending}
+            min={70}
+            max={500}
+            onSave={() =>
+              start(async () => {
+                const nextAge = parseInt(age, 10);
+                const nextBodyWeight = parseFloat(comparisonBodyWeight);
+                const r = await setComparisonProfileAction({
+                  age: Number.isFinite(nextAge) ? nextAge : null,
+                  bodyWeightLb: Number.isFinite(nextBodyWeight) ? nextBodyWeight : null,
+                });
+                if (r.ok) {
+                  toast.success("Comparison profile updated");
+                  router.refresh();
+                }
+              })
+            }
+          />
+        </Row>
+      </Group>
+
       <Group label="Display">
-        <Row title="Show tempo guidance on bench sets" sub="Pause/touch-and-go chips on the active workout" last>
+        <Row title="Show tempo guidance on bench sets" sub="Pause/touch-and-go chips on the active workout" last={false}>
           <TempoToggle />
+        </Row>
+        <Row title="Guided warm-up" sub="Step through a pre-lift warm-up before logging starts" last>
+          <Toggle
+            on={enableWarmup}
+            disabled={pending}
+            testId="warmup-toggle"
+            onToggle={(next) =>
+              start(async () => {
+                setEnableWarmup(next);
+                const r = await setEnableWarmupAction(next);
+                if (r.ok) {
+                  toast.success(next ? "Warm-up enabled" : "Warm-up off");
+                  router.refresh();
+                } else {
+                  setEnableWarmup(!next);
+                }
+              })
+            }
+          />
+        </Row>
+      </Group>
+
+      <Group label="Workout Defaults">
+        <Row title="Main lift rest" sub="Minutes after bench and squat sets" last={false}>
+          <NumberSave
+            value={mainRest}
+            onChange={setMainRest}
+            suffix="min"
+            disabled={pending}
+            onSave={() =>
+              start(async () => {
+                const main = Math.max(1, Math.min(10, Math.round(parseFloat(mainRest) || 3)));
+                const accessory = Math.max(1, Math.min(10, Math.round(parseFloat(accessoryRest) || 2)));
+                await setRestTimersAction({ mainSec: main * 60, accessorySec: accessory * 60 });
+                toast.success("Rest timers updated");
+                router.refresh();
+              })
+            }
+          />
+        </Row>
+        <Row title="Accessory rest" sub="Minutes after accessory sets" last>
+          <NumberSave
+            value={accessoryRest}
+            onChange={setAccessoryRest}
+            suffix="min"
+            disabled={pending}
+            onSave={() =>
+              start(async () => {
+                const main = Math.max(1, Math.min(10, Math.round(parseFloat(mainRest) || 3)));
+                const accessory = Math.max(1, Math.min(10, Math.round(parseFloat(accessoryRest) || 2)));
+                await setRestTimersAction({ mainSec: main * 60, accessorySec: accessory * 60 });
+                toast.success("Rest timers updated");
+                router.refresh();
+              })
+            }
+          />
         </Row>
       </Group>
 
       <Group label="Program">
-        <Row title="Current week" sub={`Week ${currentWeek} of 14`} last={false} />
+        <Row title="Current week" sub={`Week ${currentWeek} of 14 · ${currentBlock}`} last={false} />
+        <Row title="Start date" sub="Changing this re-anchors the 14-week calendar" last={false}>
+          <input
+            type="date"
+            value={programStart}
+            onChange={(e) => setProgramStart(e.target.value)}
+            style={inputStyle(132)}
+          />
+          <button
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                const r = await setProgramStartDateAction(programStart);
+                if (r.ok) {
+                  toast.success("Start date updated");
+                  router.refresh();
+                }
+              })
+            }
+            style={smallButtonStyle}
+          >
+            Save
+          </button>
+        </Row>
+        <Row title="Timezone" sub="Used for week/day rollover and bodyweight dates" last={false}>
+          <input
+            value={timezone}
+            onChange={(e) => setTimezone(e.target.value)}
+            placeholder="America/New_York"
+            style={inputStyle(156)}
+          />
+          <button
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                const r = await setTimezoneAction(timezone);
+                if (r.ok) {
+                  toast.success("Timezone updated");
+                  router.refresh();
+                } else {
+                  toast.error("Invalid timezone");
+                }
+              })
+            }
+            style={smallButtonStyle}
+          >
+            Save
+          </button>
+        </Row>
         <Row title="Reset program" sub="Wipes sessions and sets, restarts week 1" last>
           <BigButton
             kind="ghost"
@@ -156,6 +345,8 @@ function OneRmRow({
   const [v, setV] = useState(String(oneRm ?? ""));
   const [pending, start] = useTransition();
   const router = useRouter();
+  const squatWorkingWeight =
+    liftName === "back_squat" && oneRm != null ? Math.round((oneRm * 0.75) / 5) * 5 : null;
 
   return (
     <div
@@ -169,7 +360,12 @@ function OneRmRow({
     >
       <div style={{ flex: 1 }}>
         <div className="text-[15px] font-medium">{label}</div>
-        {trainingMax != null ? (
+        {liftName === "back_squat" && squatWorkingWeight != null ? (
+          <div className="text-[12px] mt-0.5" style={{ color: BP.textDim }}>
+            1RM <Mono>{oneRm ?? "—"}</Mono> · next squat{" "}
+            <Mono data-testid={`tm-${liftName}`}>{squatWorkingWeight}</Mono> lb
+          </div>
+        ) : trainingMax != null ? (
           <div className="text-[12px] mt-0.5" style={{ color: BP.textDim }}>
             1RM <Mono>{oneRm ?? "—"}</Mono> · TM{" "}
             <Mono data-testid={`tm-${liftName}`}>{trainingMax}</Mono> lb
@@ -208,7 +404,7 @@ function OneRmRow({
               if (!Number.isFinite(n) || n <= 0) return;
               start(async () => {
                 const r = await setLiftOneRmAction({
-                  liftName: liftName as "bench_press",
+                  liftName: liftName as "bench_press" | "back_squat",
                   oneRm: n,
                 });
                 if (r.ok) {
@@ -259,6 +455,69 @@ function OneRmRow({
   );
 }
 
+const smallButtonStyle: React.CSSProperties = {
+  height: 36,
+  padding: "0 10px",
+  marginLeft: 8,
+  background: BP.surface2,
+  color: BP.text,
+  border: `1px solid ${BP.border}`,
+  borderRadius: 8,
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+function inputStyle(width: number): React.CSSProperties {
+  return {
+    width,
+    height: 36,
+    padding: "0 10px",
+    background: BP.surface2,
+    border: `1px solid ${BP.border}`,
+    borderRadius: 8,
+    color: BP.text,
+    outline: "none",
+    fontFamily: "var(--font-mono)",
+    fontSize: 12,
+  };
+}
+
+function NumberSave({
+  value,
+  onChange,
+  suffix,
+  disabled,
+  min = 1,
+  max = 10,
+  onSave,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  suffix: string;
+  disabled: boolean;
+  min?: number;
+  max?: number;
+  onSave: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle(58)}
+      />
+      <Mono style={{ fontSize: 11, color: BP.textDim }}>{suffix}</Mono>
+      <button disabled={disabled} onClick={onSave} style={smallButtonStyle}>
+        Save
+      </button>
+    </div>
+  );
+}
+
 function TempoToggle() {
   const [on, setOn] = useState(true);
   useEffect(() => {
@@ -286,6 +545,51 @@ function TempoToggle() {
         border: `1px solid ${on ? BP.accent : BP.borderSoft}`,
         position: "relative",
         cursor: "pointer",
+        padding: 0,
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 2,
+          left: on ? 20 : 2,
+          width: 22,
+          height: 22,
+          borderRadius: 999,
+          background: "#fff",
+          transition: "left 120ms ease",
+        }}
+      />
+    </button>
+  );
+}
+
+function Toggle({
+  on,
+  onToggle,
+  disabled,
+  testId,
+}: {
+  on: boolean;
+  onToggle: (next: boolean) => void;
+  disabled?: boolean;
+  testId?: string;
+}) {
+  return (
+    <button
+      onClick={() => !disabled && onToggle(!on)}
+      disabled={disabled}
+      data-testid={testId}
+      data-on={on ? "1" : "0"}
+      style={{
+        width: 46,
+        height: 28,
+        borderRadius: 999,
+        background: on ? BP.accent : BP.surface2,
+        border: `1px solid ${on ? BP.accent : BP.borderSoft}`,
+        position: "relative",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.6 : 1,
         padding: 0,
       }}
     >

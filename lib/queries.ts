@@ -14,7 +14,7 @@ import {
   workoutSets,
 } from "@/lib/db/schema";
 import { and, desc, eq, gte, isNotNull, isNull, ne, sql } from "drizzle-orm";
-import { isoDate, scheduledDateForDay } from "@/lib/program-state";
+import { computeProgramWeek, dayOfWeekInTz, isoDate, scheduledDateForDay } from "@/lib/program-state";
 import { requireUserId } from "@/lib/auth";
 
 // Every query here is scoped to the signed-in user. `requireUserId` reads the
@@ -242,26 +242,118 @@ export async function getCompletedSessionForProgramDay(programDayId: string) {
 }
 
 export async function getNextScheduledDay(programId: string) {
+  const candidate = await getScheduledDayCandidate(programId);
+  return candidate?.pd ?? null;
+}
+
+export type ScheduledDayReason = "rescheduled_today" | "today" | "missed" | "upcoming";
+
+export async function getScheduledDayCandidate(
+  programId: string,
+  today = new Date(),
+  tz?: string,
+): Promise<{
+  pd: typeof programDays.$inferSelect;
+  reason: ScheduledDayReason;
+  scheduledDate: string;
+  label: string;
+} | null> {
   const userId = await requireUserId();
-  // First program day for this program with no completed session
+  const [program] = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.id, programId), eq(programs.userId, userId)))
+    .limit(1);
+  if (!program) return null;
+
+  const actualTz = tz ?? (await getSettings())?.timezone ?? "UTC";
+  const todayIso = isoDate(today, actualTz);
+  const currentWeek = computeProgramWeek(program.startDate, today, actualTz);
+  const currentDay = dayOfWeekInTz(today, actualTz);
+
   const all = await db
     .select({
       pd: programDays,
       sess: workoutSessions,
+      ds: dayStatus,
     })
     .from(programDays)
     .leftJoin(
       workoutSessions,
       and(
         eq(workoutSessions.programDayId, programDays.id),
+        eq(workoutSessions.userId, userId),
         isNotNull(workoutSessions.completedAt),
       ),
+    )
+    .leftJoin(
+      dayStatus,
+      and(eq(dayStatus.programDayId, programDays.id), eq(dayStatus.userId, userId)),
     )
     .where(and(eq(programDays.programId, programId), eq(programDays.userId, userId)))
     .orderBy(programDays.weekNumber, programDays.dayOfWeek);
 
-  const next = all.find((r) => r.sess == null && r.pd.sessionType !== "rest");
-  return next?.pd ?? null;
+  const open = all
+    .filter((r) => {
+      if (r.pd.sessionType === "rest") return false;
+      if (r.sess) return false;
+      if (r.ds?.state === "done" || r.ds?.state === "skipped") return false;
+      return true;
+    })
+    .map((r) => ({
+      ...r,
+      scheduledDate: scheduledDateForDay(program.startDate, r.pd.weekNumber, r.pd.dayOfWeek),
+    }));
+
+  const rescheduledToday = open.find(
+    (r) => r.ds?.state === "rescheduled" && r.ds.rescheduledTo === todayIso,
+  );
+  if (rescheduledToday) {
+    return {
+      pd: rescheduledToday.pd,
+      reason: "rescheduled_today",
+      scheduledDate: todayIso,
+      label: "Rescheduled today",
+    };
+  }
+
+  const programmedToday = open.find(
+    (r) => r.pd.weekNumber === currentWeek && r.pd.dayOfWeek === currentDay,
+  );
+  if (programmedToday) {
+    return {
+      pd: programmedToday.pd,
+      reason: "today",
+      scheduledDate: todayIso,
+      label: "Today",
+    };
+  }
+
+  const missed = open.find((r) => {
+    if (r.scheduledDate >= todayIso) return false;
+    if (r.ds?.state === "rescheduled" && r.ds.rescheduledTo && r.ds.rescheduledTo > todayIso) return false;
+    return true;
+  });
+  if (missed) {
+    return {
+      pd: missed.pd,
+      reason: "missed",
+      scheduledDate: missed.scheduledDate,
+      label: "Missed",
+    };
+  }
+
+  const upcoming = open.find((r) => {
+    if (r.ds?.state === "rescheduled") return !!r.ds.rescheduledTo && r.ds.rescheduledTo > todayIso;
+    return r.scheduledDate > todayIso;
+  });
+  if (!upcoming) return null;
+  return {
+    pd: upcoming.pd,
+    reason: "upcoming",
+    scheduledDate: upcoming.ds?.rescheduledTo ?? upcoming.scheduledDate,
+    label: "Upcoming",
+  };
 }
 
 export async function getProgramOverview(programId: string) {
@@ -398,10 +490,14 @@ export async function getMissedDays(programId: string, today = new Date(), tz?: 
       workoutSessions,
       and(
         eq(workoutSessions.programDayId, programDays.id),
+        eq(workoutSessions.userId, userId),
         isNotNull(workoutSessions.completedAt),
       ),
     )
-    .leftJoin(dayStatus, eq(dayStatus.programDayId, programDays.id))
+    .leftJoin(
+      dayStatus,
+      and(eq(dayStatus.programDayId, programDays.id), eq(dayStatus.userId, userId)),
+    )
     .where(and(eq(programDays.programId, programId), eq(programDays.userId, userId)))
     .orderBy(programDays.weekNumber, programDays.dayOfWeek);
 

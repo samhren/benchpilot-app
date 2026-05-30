@@ -65,8 +65,6 @@ async function main() {
     .values([
       { userId, name: "bench_press" },
       { userId, name: "back_squat" },
-      { userId, name: "deadlift" },
-      { userId, name: "overhead_press" },
     ])
     .returning();
   const liftByName = new Map(liftRows.map((l) => [l.name, l.id]));

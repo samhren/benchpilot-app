@@ -70,7 +70,7 @@ const ACCESSORY = {
     { name: "Cable Lateral Raise", muscle: "side-delts", sets: 2, reps: 13, rir: 0, notes: null },
   ],
   lower_b: [
-    { name: "Romanian Deadlift", muscle: "hamstrings", sets: 3, reps: 7, rir: 2, notes: null, isMain: true, lift: "deadlift" as const },
+    { name: "Romanian Deadlift", muscle: "hamstrings", sets: 3, reps: 7, rir: 2, notes: null },
     { name: "Hack Squat", muscle: "quads", sets: 2, reps: 9, rir: 1, notes: "Or leg press" },
     { name: "Leg Extension", muscle: "quads", sets: 2, reps: 11, rir: 1, notes: "Paused at top, lengthened ROM. Pedrosa 2022." },
     { name: "Seated Leg Curl", muscle: "hamstrings", sets: 2, reps: 11, rir: 1, notes: null },
@@ -271,7 +271,6 @@ export function buildExerciseLibrary(): Array<{
 
   add("Bench Press", "chest", 5, true, null);
   add("Back Squat", "quads", 4, true, null);
-  add("Deadlift", "back", 1, true, null);
   add("Overhead Press", "shoulders", 3, true, null);
 
   for (const group of Object.values(ACCESSORY)) {

@@ -128,6 +128,7 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
       units={units}
       restMainSec={settings?.defaultRestMainSec ?? 180}
       restAccessorySec={settings?.defaultRestAccessorySec ?? 90}
+      enableWarmup={settings?.enableWarmup ?? false}
       sessionExercises={sessionExerciseList}
       library={library}
     />

@@ -4,6 +4,7 @@ import {
   computeProgramWeek,
   dayOfWeekFromJs,
   dayOfWeekInTz,
+  getProgramProgress,
   isoDateInTz,
   scheduledDateForDay,
   shouldSuggestLongGapDeload,
@@ -36,6 +37,17 @@ describe("computeProgramWeek", () => {
   });
   it("clamps to 14", () => {
     expect(computeProgramWeek("2024-01-01", new Date("2026-05-08T12:00:00"))).toBe(14);
+  });
+});
+
+describe("getProgramProgress", () => {
+  it("derives numbered blocks from the current week", () => {
+    expect(getProgramProgress("2026-05-04", new Date("2026-06-01T12:00:00Z"), "UTC").blockLabel).toBe("Block 2");
+  });
+
+  it("labels deload and test weeks", () => {
+    expect(getProgramProgress("2026-05-04", new Date("2026-07-27T12:00:00Z"), "UTC").blockLabel).toBe("Deload");
+    expect(getProgramProgress("2026-05-04", new Date("2026-08-03T12:00:00Z"), "UTC").blockLabel).toBe("Test");
   });
 });
 

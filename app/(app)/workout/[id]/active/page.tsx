@@ -161,7 +161,7 @@ export default async function ActivePage({
             rirTarget: null,
             sessionLabel: day.displayName,
             tempo,
-            requiresWeightInput: !(e.ex.name === "Bench Press" && wp != null),
+            requiresWeightInput: wp == null,
             last,
             lastSession: lastSessionRow,
             logged: loggedRow
@@ -195,7 +195,7 @@ export default async function ActivePage({
         const setNum = s + 1;
         const loggedRow = loggedMap.get(`${e.se.id}:${setNum}`);
         rows.push({
-          kind: e.se.percentageOfTm != null ? "main" : "accessory",
+          kind: isMainLift ? "main" : "accessory",
           isMainLift,
           sessionExerciseId: e.se.id,
           exerciseId: e.ex.id,
@@ -210,7 +210,7 @@ export default async function ActivePage({
           rirTarget: e.se.rirTarget,
           sessionLabel: day.displayName,
           tempo,
-          requiresWeightInput: !(e.ex.name === "Bench Press" && e.se.weightPrescribed != null),
+          requiresWeightInput: e.se.weightPrescribed == null,
           last,
           lastSession: lastSessionRow,
           logged: loggedRow
@@ -263,6 +263,7 @@ export default async function ActivePage({
       units={units}
       restMainSec={settings?.defaultRestMainSec ?? 180}
       restAccessorySec={settings?.defaultRestAccessorySec ?? 90}
+      enableWarmup={settings?.enableWarmup ?? false}
       sessionExercises={sessionExerciseList}
       library={library}
     />

@@ -1,6 +1,7 @@
 // Program state helpers — current week / day, today's session, etc.
 import { db } from "@/lib/db";
 import { programs } from "@/lib/db/schema";
+import { getCurrentBlock, type Block } from "@/lib/programming/blocks";
 import { eq } from "drizzle-orm";
 
 // Format a Date as YYYY-MM-DD in the given IANA timezone.
@@ -58,6 +59,26 @@ export function computeProgramWeek(
   const days = daysBetweenIso(startIso, todayIso);
   const week = Math.floor(days / 7) + 1;
   return Math.min(Math.max(week, 1), 14);
+}
+
+export interface ProgramProgress {
+  week: number;
+  totalWeeks: number;
+  block: Block;
+  blockLabel: string;
+}
+
+export function getProgramProgress(
+  startDate: string | Date,
+  today: Date = new Date(),
+  tz?: string,
+  totalWeeks = 14,
+): ProgramProgress {
+  const week = computeProgramWeek(startDate, today, tz);
+  const block = getCurrentBlock(week);
+  const blockLabel =
+    block === "deload" ? "Deload" : block === "test" ? "Test" : `Block ${block}`;
+  return { week, totalWeeks, block, blockLabel };
 }
 
 export async function setCurrentProgramWeek(programId: string, weekNumber: number) {

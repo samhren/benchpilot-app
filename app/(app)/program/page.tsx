@@ -3,10 +3,10 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { workoutSessions, programDays } from "@/lib/db/schema";
+import { dayStatus, workoutSessions, programDays } from "@/lib/db/schema";
 import { eq, isNotNull, and } from "drizzle-orm";
 import { getActiveProgram, getAllProgramDays, getSettings } from "@/lib/queries";
-import { computeProgramWeek, dayOfWeekInTz } from "@/lib/program-state";
+import { dayOfWeekInTz, getProgramProgress, isoDate, scheduledDateForDay } from "@/lib/program-state";
 import { BP, Eyebrow, Mono } from "@/components/ui/primitives";
 import { requireUserId } from "@/lib/auth";
 
@@ -58,12 +58,20 @@ export default async function ProgramPage() {
       ),
     );
   const doneIds = new Set(completed.map((c) => c.pdId));
+  const statuses = await db
+    .select({ programDayId: dayStatus.programDayId, state: dayStatus.state, rescheduledTo: dayStatus.rescheduledTo })
+    .from(dayStatus)
+    .innerJoin(programDays, eq(dayStatus.programDayId, programDays.id))
+    .where(and(eq(dayStatus.userId, userId), eq(programDays.programId, program.id)));
+  const statusByDay = new Map(statuses.map((s) => [s.programDayId, s]));
 
   const settingsRow = await getSettings();
   const tz = settingsRow?.timezone ?? "UTC";
   const today = new Date();
-  const currentWeek = computeProgramWeek(program.startDate, today, tz);
+  const progress = getProgramProgress(program.startDate, today, tz, program.totalWeeks);
+  const currentWeek = progress.week;
   const currentDay = dayOfWeekInTz(today, tz);
+  const todayIso = isoDate(today, tz);
 
   const byWeek: Record<number, typeof all> = {};
   for (const d of all) {
@@ -141,13 +149,31 @@ export default async function ProgramPage() {
                   {String(w).padStart(2, "0")}
                 </div>
                 {days.map((d) => (
-                  <DayChip
-                    key={d.id}
-                    sessionType={d.sessionType}
-                    href={d.sessionType === "rest" ? null : `/workout/${d.id}`}
-                    isToday={isCurrent && d.dayOfWeek === currentDay}
-                    isDone={doneIds.has(d.id)}
-                  />
+                  (() => {
+                    const ds = statusByDay.get(d.id);
+                    const scheduled = scheduledDateForDay(program.startDate, d.weekNumber, d.dayOfWeek);
+                    const isDone = doneIds.has(d.id) || ds?.state === "done";
+                    const isSkipped = ds?.state === "skipped";
+                    const isRescheduled = ds?.state === "rescheduled";
+                    const isMissed =
+                      d.sessionType !== "rest" &&
+                      !isDone &&
+                      !isSkipped &&
+                      !isRescheduled &&
+                      scheduled < todayIso;
+                    return (
+                      <DayChip
+                        key={d.id}
+                        sessionType={d.sessionType}
+                        href={d.sessionType === "rest" || isSkipped ? null : `/workout/${d.id}`}
+                        isToday={isCurrent && d.dayOfWeek === currentDay}
+                        isDone={isDone}
+                        isSkipped={isSkipped}
+                        isRescheduled={isRescheduled}
+                        isMissed={isMissed}
+                      />
+                    );
+                  })()
                 ))}
               </div>
             );
@@ -163,11 +189,17 @@ function DayChip({
   href,
   isToday,
   isDone,
+  isSkipped,
+  isRescheduled,
+  isMissed,
 }: {
   sessionType: string;
   href: string | null;
   isToday: boolean;
   isDone: boolean;
+  isSkipped: boolean;
+  isRescheduled: boolean;
+  isMissed: boolean;
 }) {
   if (sessionType === "rest") {
     return (
@@ -189,14 +221,15 @@ function DayChip({
   const color = SESSION_COLORS[sessionType] || BP.textMuted;
   // A completed session is "done" first and foremost — only highlight today's
   // session while it's still outstanding.
-  const highlight = isToday && !isDone;
+  const highlight = isToday && !isDone && !isSkipped;
+  const stateColor = isMissed ? "#ffaa3a" : isRescheduled ? "#3a8dff" : isSkipped ? BP.textDim : color;
   const inner = (
     <div
       style={{
         height: 40,
         borderRadius: 8,
-        background: highlight ? color : isDone ? "rgba(255,255,255,0.04)" : BP.surface,
-        border: `1px solid ${isDone ? color + "55" : BP.borderSoft}`,
+        background: highlight ? color : isDone || isSkipped ? "rgba(255,255,255,0.04)" : BP.surface,
+        border: `1px solid ${isDone || isSkipped || isRescheduled || isMissed ? stateColor + "66" : BP.borderSoft}`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -211,24 +244,38 @@ function DayChip({
         style={{
           fontSize: 11,
           fontWeight: 700,
-          color: highlight ? "#fff" : isDone ? BP.textDim : color,
-          opacity: isDone ? 0.7 : 1,
+          color: highlight ? "#fff" : isDone || isSkipped ? BP.textDim : stateColor,
+          opacity: isDone || isSkipped ? 0.7 : 1,
         }}
       >
         {SESSION_SHORT[sessionType]}
       </Mono>
-      {isDone ? (
+      {isDone || isSkipped || isRescheduled || isMissed ? (
         <div
           style={{
             position: "absolute",
             top: 3,
             right: 3,
-            width: 5,
+            minWidth: 5,
             height: 5,
             borderRadius: 3,
-            background: color,
+            background: stateColor,
           }}
         />
+      ) : null}
+      {isSkipped || isRescheduled || isMissed ? (
+        <Mono
+          style={{
+            position: "absolute",
+            bottom: 2,
+            right: 4,
+            fontSize: 8,
+            color: stateColor,
+            fontWeight: 800,
+          }}
+        >
+          {isSkipped ? "S" : isRescheduled ? "R" : "!"}
+        </Mono>
       ) : null}
     </div>
   );
