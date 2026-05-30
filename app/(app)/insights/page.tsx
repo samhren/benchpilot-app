@@ -1,10 +1,15 @@
 export const dynamic = "force-dynamic";
 
 import { db } from "@/lib/db";
-import { bodyWeightLogs, exercises, sessionExercises, settings, workoutSessions, workoutSets } from "@/lib/db/schema";
+import { bodyWeightLogs, exercises, lifts, sessionExercises, settings, workoutSessions, workoutSets } from "@/lib/db/schema";
 import { requireUserId } from "@/lib/auth";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
-import { computeMuscleInsights, type InsightSet } from "@/lib/insights/muscle-model";
+import {
+  computeStrength,
+  computeVolumeByRegion,
+  type InsightSet,
+  type LiftName,
+} from "@/lib/insights/muscle-model";
 import InsightsClient from "./insights-client";
 
 export default async function InsightsPage() {
@@ -16,6 +21,10 @@ export default async function InsightsPage() {
     .where(eq(bodyWeightLogs.userId, userId))
     .orderBy(desc(bodyWeightLogs.date))
     .limit(1);
+  const liftRows = await db
+    .select({ name: lifts.name, currentOneRm: lifts.currentOneRm })
+    .from(lifts)
+    .where(eq(lifts.userId, userId));
 
   const rows = await db
     .select({
@@ -52,14 +61,20 @@ export default async function InsightsPage() {
     completedAt: new Date(r.completedAt as Date).toISOString(),
   }));
 
-  const insights = computeMuscleInsights(sets, {
+  const liftOneRms: Partial<Record<LiftName, number | null>> = {};
+  for (const l of liftRows) liftOneRms[l.name as LiftName] = l.currentOneRm;
+
+  const volume = computeVolumeByRegion(sets);
+  const strength = computeStrength(sets, {
+    lifts: liftOneRms,
     bodyWeightLb: bodyWeight,
     age: settingsRow?.age ?? null,
   });
 
   return (
     <InsightsClient
-      insights={insights}
+      volume={volume}
+      strength={strength}
       bodyWeight={bodyWeight}
       age={settingsRow?.age ?? null}
     />

@@ -1,7 +1,27 @@
-export type MuscleId =
+// Insights data model. Two independent, separately-sourced views:
+//
+//  1. VOLUME / BALANCE — per muscle *region* (delts split front/side/rear, back
+//     split lats/upper-back/traps). Weekly hard sets are share-weighted and
+//     compared to published volume landmarks (MEV/MRV). Good data exists here.
+//
+//  2. STRENGTH — anchored ONLY to compound lifts that have real strength
+//     standards (bench, OHP, squat, deadlift, weighted pull-up) scored vs a
+//     bodyweight-relative standard. Isolation movements are deliberately NOT
+//     scored for strength: there is no credible "rear-delt 1RM standard", and
+//     letting a pec-deck define "back strength" produced nonsense (e.g. 271%).
+//
+// Strength standards are male-oriented (the app has no sex field) and are
+// bodyweight/age-scaled. Volume landmarks follow Renaissance Periodization's
+// published per-muscle ranges. Sources in MUSCLE_MODEL_SOURCE.
+
+export type RegionId =
   | "chest"
-  | "back"
-  | "shoulders"
+  | "front_delt"
+  | "side_delt"
+  | "rear_delt"
+  | "lats"
+  | "upper_back"
+  | "traps"
   | "biceps"
   | "triceps"
   | "quads"
@@ -10,15 +30,15 @@ export type MuscleId =
   | "calves"
   | "core";
 
-export interface MuscleContribution {
-  muscle: MuscleId;
+export type RegionGroup = "Push" | "Shoulders" | "Back" | "Arms" | "Legs" | "Core";
+
+export interface RegionContribution {
+  region: RegionId;
   share: number;
 }
 
 export interface ExerciseModel {
-  muscles: MuscleContribution[];
-  fatigueHalfLifeHours: number;
-  standardRatio: number;
+  regions: RegionContribution[];
 }
 
 export interface InsightSet {
@@ -31,28 +51,14 @@ export interface InsightSet {
   completedAt: string;
 }
 
-export interface MuscleInsight {
-  muscle: MuscleId;
-  label: string;
-  // 0-100 recovery-adjusted fatigue. Absolute scale: a fully recovered muscle
-  // reads ~0, a muscle hit hard within the last day reads high. NOT normalized
-  // to the user's own peak, so "everything red" no longer happens.
-  fatigue: number;
-  // Hard (non-warmup) working sets credited to this muscle in the last 7 days,
-  // weighted by each exercise's involvement share. Honest "effective sets".
-  weeklySets: number;
-  // Working-set tonnage (Σ weight×reps, lb) credited to this muscle, last 7 days.
-  weeklyVolumeLb: number;
-  strengthScore: number | null;
-  bestExercise: string | null;
-  bestE1rm: number | null;
-  standardE1rm: number | null;
-}
-
-export const MUSCLE_LABELS: Record<MuscleId, string> = {
+export const REGION_LABELS: Record<RegionId, string> = {
   chest: "Chest",
-  back: "Back",
-  shoulders: "Shoulders",
+  front_delt: "Front delts",
+  side_delt: "Side delts",
+  rear_delt: "Rear delts",
+  lats: "Lats",
+  upper_back: "Upper back",
+  traps: "Traps",
   biceps: "Biceps",
   triceps: "Triceps",
   quads: "Quads",
@@ -62,12 +68,33 @@ export const MUSCLE_LABELS: Record<MuscleId, string> = {
   core: "Core",
 };
 
-export const MUSCLE_ORDER: MuscleId[] = [
+export const REGION_GROUP: Record<RegionId, RegionGroup> = {
+  chest: "Push",
+  triceps: "Push",
+  front_delt: "Shoulders",
+  side_delt: "Shoulders",
+  rear_delt: "Shoulders",
+  lats: "Back",
+  upper_back: "Back",
+  traps: "Back",
+  biceps: "Arms",
+  quads: "Legs",
+  hamstrings: "Legs",
+  glutes: "Legs",
+  calves: "Legs",
+  core: "Core",
+};
+
+export const REGION_ORDER: RegionId[] = [
   "chest",
-  "back",
-  "shoulders",
-  "biceps",
   "triceps",
+  "front_delt",
+  "side_delt",
+  "rear_delt",
+  "lats",
+  "upper_back",
+  "traps",
+  "biceps",
   "quads",
   "hamstrings",
   "glutes",
@@ -75,276 +102,229 @@ export const MUSCLE_ORDER: MuscleId[] = [
   "core",
 ];
 
-// Snapshot derived from:
-// - Free Exercise DB exercise primary/secondary muscle schema and public-domain
-//   exercise taxonomy.
-// - Strength Level and FitnessVolt public strength-standard pages for common
-//   lift/bodyweight relationships. Ratios are compacted to broad muscle groups
-//   so the app never needs runtime scraping.
-export const MUSCLE_MODEL_SOURCE = {
-  updated: "2026-05-29",
-  exerciseTaxonomy: "https://github.com/yuhonas/free-exercise-db",
-  standards: [
-    "https://strengthlevel.com/strength-standards",
-    "https://fitnessvolt.com/strength-standards/",
-  ],
+// Weekly hard-set landmarks (share-weighted effective sets, last 7 days).
+// mev = minimum effective volume, mrv = maximum recoverable volume. The
+// mev..mrv band is the productive range. Approximated from Renaissance
+// Periodization's published per-muscle landmarks.
+export const VOLUME_LANDMARKS: Record<RegionId, { mev: number; mrv: number }> = {
+  chest: { mev: 8, mrv: 22 },
+  front_delt: { mev: 4, mrv: 12 }, // heavily covered by pressing
+  side_delt: { mev: 8, mrv: 26 },
+  rear_delt: { mev: 6, mrv: 24 },
+  lats: { mev: 10, mrv: 22 },
+  upper_back: { mev: 10, mrv: 25 },
+  traps: { mev: 4, mrv: 20 },
+  biceps: { mev: 8, mrv: 26 },
+  triceps: { mev: 8, mrv: 18 },
+  quads: { mev: 8, mrv: 20 },
+  hamstrings: { mev: 6, mrv: 20 },
+  glutes: { mev: 4, mrv: 16 },
+  calves: { mev: 8, mrv: 20 },
+  core: { mev: 6, mrv: 25 },
 };
 
-const DEFAULT_HALF_LIFE = 42;
+export const MUSCLE_MODEL_SOURCE = {
+  updated: "2026-05-30",
+  exerciseTaxonomy: "https://github.com/yuhonas/free-exercise-db",
+  strengthStandards: [
+    "https://strengthlevel.com/strength-standards",
+    "https://symmetricstrength.com",
+  ],
+  volumeLandmarks: "Renaissance Periodization per-muscle MEV/MRV landmarks",
+};
 
+// Per-exercise region involvement. Shares are a rough split of the training
+// stimulus and sum to ~1 per exercise.
 export const EXERCISE_MODELS: Record<string, ExerciseModel> = {
   "Bench Press": {
-    muscles: [
-      { muscle: "chest", share: 0.48 },
-      { muscle: "triceps", share: 0.24 },
-      { muscle: "shoulders", share: 0.18 },
-      { muscle: "back", share: 0.1 },
+    regions: [
+      { region: "chest", share: 0.5 },
+      { region: "triceps", share: 0.26 },
+      { region: "front_delt", share: 0.24 },
     ],
-    fatigueHalfLifeHours: 48,
-    standardRatio: 1.0,
   },
   "Bench Press 1RM Test": {
-    muscles: [
-      { muscle: "chest", share: 0.5 },
-      { muscle: "triceps", share: 0.24 },
-      { muscle: "shoulders", share: 0.18 },
-      { muscle: "back", share: 0.08 },
+    regions: [
+      { region: "chest", share: 0.52 },
+      { region: "triceps", share: 0.24 },
+      { region: "front_delt", share: 0.24 },
     ],
-    fatigueHalfLifeHours: 60,
-    standardRatio: 1.0,
   },
   "Close-Grip Bench Press": {
-    muscles: [
-      { muscle: "triceps", share: 0.4 },
-      { muscle: "chest", share: 0.34 },
-      { muscle: "shoulders", share: 0.16 },
-      { muscle: "back", share: 0.1 },
+    regions: [
+      { region: "triceps", share: 0.42 },
+      { region: "chest", share: 0.34 },
+      { region: "front_delt", share: 0.24 },
     ],
-    fatigueHalfLifeHours: 48,
-    standardRatio: 0.82,
   },
   "Incline DB Press": {
-    muscles: [
-      { muscle: "chest", share: 0.46 },
-      { muscle: "shoulders", share: 0.28 },
-      { muscle: "triceps", share: 0.2 },
-      { muscle: "back", share: 0.06 },
+    regions: [
+      { region: "chest", share: 0.46 },
+      { region: "front_delt", share: 0.3 },
+      { region: "triceps", share: 0.24 },
     ],
-    fatigueHalfLifeHours: 40,
-    standardRatio: 0.58,
   },
   "Weighted Dip": {
-    muscles: [
-      { muscle: "chest", share: 0.36 },
-      { muscle: "triceps", share: 0.36 },
-      { muscle: "shoulders", share: 0.18 },
-      { muscle: "core", share: 0.1 },
+    regions: [
+      { region: "chest", share: 0.4 },
+      { region: "triceps", share: 0.4 },
+      { region: "front_delt", share: 0.2 },
     ],
-    fatigueHalfLifeHours: 42,
-    standardRatio: 0.34,
   },
   "Weighted Pull-up": {
-    muscles: [
-      { muscle: "back", share: 0.54 },
-      { muscle: "biceps", share: 0.28 },
-      { muscle: "shoulders", share: 0.08 },
-      { muscle: "core", share: 0.1 },
+    regions: [
+      { region: "lats", share: 0.55 },
+      { region: "biceps", share: 0.25 },
+      { region: "upper_back", share: 0.15 },
+      { region: "rear_delt", share: 0.05 },
     ],
-    fatigueHalfLifeHours: 44,
-    standardRatio: 0.32,
   },
   "Seated Cable Row": {
-    muscles: [
-      { muscle: "back", share: 0.58 },
-      { muscle: "biceps", share: 0.2 },
-      { muscle: "shoulders", share: 0.12 },
-      { muscle: "core", share: 0.1 },
+    regions: [
+      { region: "lats", share: 0.4 },
+      { region: "upper_back", share: 0.34 },
+      { region: "biceps", share: 0.18 },
+      { region: "rear_delt", share: 0.08 },
     ],
-    fatigueHalfLifeHours: 38,
-    standardRatio: 0.82,
   },
   "Chest-Supported Smith Row": {
-    muscles: [
-      { muscle: "back", share: 0.64 },
-      { muscle: "biceps", share: 0.2 },
-      { muscle: "shoulders", share: 0.16 },
+    regions: [
+      { region: "upper_back", share: 0.45 },
+      { region: "lats", share: 0.3 },
+      { region: "biceps", share: 0.18 },
+      { region: "rear_delt", share: 0.07 },
     ],
-    fatigueHalfLifeHours: 40,
-    standardRatio: 0.9,
   },
   "Cable Lat Pullover": {
-    muscles: [
-      { muscle: "back", share: 0.72 },
-      { muscle: "triceps", share: 0.1 },
-      { muscle: "core", share: 0.18 },
+    regions: [
+      { region: "lats", share: 0.85 },
+      { region: "core", share: 0.15 },
     ],
-    fatigueHalfLifeHours: 34,
-    standardRatio: 0.38,
   },
   "One-Arm Lat Pulldown": {
-    muscles: [
-      { muscle: "back", share: 0.62 },
-      { muscle: "biceps", share: 0.24 },
-      { muscle: "shoulders", share: 0.08 },
-      { muscle: "core", share: 0.06 },
+    regions: [
+      { region: "lats", share: 0.66 },
+      { region: "biceps", share: 0.24 },
+      { region: "upper_back", share: 0.05 },
+      { region: "rear_delt", share: 0.05 },
     ],
-    fatigueHalfLifeHours: 36,
-    standardRatio: 0.52,
   },
   "Cable Face Pull": {
-    muscles: [
-      { muscle: "shoulders", share: 0.5 },
-      { muscle: "back", share: 0.34 },
-      { muscle: "biceps", share: 0.16 },
+    regions: [
+      { region: "rear_delt", share: 0.5 },
+      { region: "upper_back", share: 0.3 },
+      { region: "traps", share: 0.1 },
+      { region: "biceps", share: 0.1 },
     ],
-    fatigueHalfLifeHours: 28,
-    standardRatio: 0.26,
   },
   "Reverse Pec Deck": {
-    muscles: [
-      { muscle: "shoulders", share: 0.62 },
-      { muscle: "back", share: 0.28 },
-      { muscle: "core", share: 0.1 },
+    regions: [
+      { region: "rear_delt", share: 0.8 },
+      { region: "upper_back", share: 0.2 },
     ],
-    fatigueHalfLifeHours: 28,
-    standardRatio: 0.28,
   },
   "Cable Lateral Raise": {
-    muscles: [{ muscle: "shoulders", share: 1 }],
-    fatigueHalfLifeHours: 26,
-    standardRatio: 0.14,
+    regions: [{ region: "side_delt", share: 1 }],
   },
   "Overhead Press": {
-    muscles: [
-      { muscle: "shoulders", share: 0.48 },
-      { muscle: "triceps", share: 0.26 },
-      { muscle: "chest", share: 0.12 },
-      { muscle: "core", share: 0.14 },
+    regions: [
+      { region: "front_delt", share: 0.45 },
+      { region: "triceps", share: 0.26 },
+      { region: "side_delt", share: 0.12 },
+      { region: "core", share: 0.1 },
+      { region: "traps", share: 0.07 },
     ],
-    fatigueHalfLifeHours: 46,
-    standardRatio: 0.62,
   },
   "Hammer Curl": {
-    muscles: [
-      { muscle: "biceps", share: 0.72 },
-      { muscle: "back", share: 0.08 },
-      { muscle: "shoulders", share: 0.08 },
-      { muscle: "core", share: 0.12 },
+    regions: [
+      { region: "biceps", share: 0.85 },
+      { region: "core", share: 0.15 },
     ],
-    fatigueHalfLifeHours: 28,
-    standardRatio: 0.22,
   },
   "Incline DB Curl": {
-    muscles: [
-      { muscle: "biceps", share: 0.82 },
-      { muscle: "shoulders", share: 0.08 },
-      { muscle: "core", share: 0.1 },
+    regions: [
+      { region: "biceps", share: 0.88 },
+      { region: "core", share: 0.12 },
     ],
-    fatigueHalfLifeHours: 28,
-    standardRatio: 0.2,
   },
   "Preacher Curl": {
-    muscles: [
-      { muscle: "biceps", share: 0.88 },
-      { muscle: "core", share: 0.12 },
+    regions: [
+      { region: "biceps", share: 0.9 },
+      { region: "core", share: 0.1 },
     ],
-    fatigueHalfLifeHours: 30,
-    standardRatio: 0.24,
   },
   "Overhead Cable Triceps Extension": {
-    muscles: [
-      { muscle: "triceps", share: 0.82 },
-      { muscle: "shoulders", share: 0.08 },
-      { muscle: "core", share: 0.1 },
+    regions: [
+      { region: "triceps", share: 0.85 },
+      { region: "core", share: 0.15 },
     ],
-    fatigueHalfLifeHours: 30,
-    standardRatio: 0.27,
   },
   "Back Squat": {
-    muscles: [
-      { muscle: "quads", share: 0.42 },
-      { muscle: "glutes", share: 0.24 },
-      { muscle: "hamstrings", share: 0.12 },
-      { muscle: "core", share: 0.14 },
-      { muscle: "calves", share: 0.08 },
+    regions: [
+      { region: "quads", share: 0.42 },
+      { region: "glutes", share: 0.24 },
+      { region: "core", share: 0.14 },
+      { region: "hamstrings", share: 0.12 },
+      { region: "calves", share: 0.08 },
     ],
-    fatigueHalfLifeHours: 60,
-    standardRatio: 1.35,
   },
   "Bulgarian Split Squat": {
-    muscles: [
-      { muscle: "quads", share: 0.42 },
-      { muscle: "glutes", share: 0.3 },
-      { muscle: "hamstrings", share: 0.12 },
-      { muscle: "core", share: 0.1 },
-      { muscle: "calves", share: 0.06 },
+    regions: [
+      { region: "quads", share: 0.42 },
+      { region: "glutes", share: 0.3 },
+      { region: "hamstrings", share: 0.12 },
+      { region: "core", share: 0.1 },
+      { region: "calves", share: 0.06 },
     ],
-    fatigueHalfLifeHours: 46,
-    standardRatio: 0.34,
   },
   "Hack Squat": {
-    muscles: [
-      { muscle: "quads", share: 0.58 },
-      { muscle: "glutes", share: 0.2 },
-      { muscle: "hamstrings", share: 0.06 },
-      { muscle: "core", share: 0.08 },
-      { muscle: "calves", share: 0.08 },
+    regions: [
+      { region: "quads", share: 0.58 },
+      { region: "glutes", share: 0.2 },
+      { region: "core", share: 0.08 },
+      { region: "calves", share: 0.08 },
+      { region: "hamstrings", share: 0.06 },
     ],
-    fatigueHalfLifeHours: 50,
-    standardRatio: 1.45,
   },
   "Leg Extension": {
-    muscles: [{ muscle: "quads", share: 1 }],
-    fatigueHalfLifeHours: 34,
-    standardRatio: 0.62,
+    regions: [{ region: "quads", share: 1 }],
   },
   "Romanian Deadlift": {
-    muscles: [
-      { muscle: "hamstrings", share: 0.44 },
-      { muscle: "glutes", share: 0.28 },
-      { muscle: "back", share: 0.14 },
-      { muscle: "core", share: 0.14 },
+    regions: [
+      { region: "hamstrings", share: 0.44 },
+      { region: "glutes", share: 0.28 },
+      { region: "core", share: 0.14 },
+      { region: "upper_back", share: 0.08 },
+      { region: "lats", share: 0.06 },
     ],
-    fatigueHalfLifeHours: 58,
-    standardRatio: 1.05,
   },
   "Seated Leg Curl": {
-    muscles: [{ muscle: "hamstrings", share: 1 }],
-    fatigueHalfLifeHours: 34,
-    standardRatio: 0.52,
+    regions: [{ region: "hamstrings", share: 1 }],
   },
   "Standing Calf Raise": {
-    muscles: [
-      { muscle: "calves", share: 0.82 },
-      { muscle: "core", share: 0.1 },
-      { muscle: "hamstrings", share: 0.08 },
+    regions: [
+      { region: "calves", share: 0.82 },
+      { region: "core", share: 0.1 },
+      { region: "hamstrings", share: 0.08 },
     ],
-    fatigueHalfLifeHours: 32,
-    standardRatio: 1.05,
   },
   "Weighted Hanging Leg Raise": {
-    muscles: [
-      { muscle: "core", share: 0.72 },
-      { muscle: "quads", share: 0.12 },
-      { muscle: "back", share: 0.1 },
-      { muscle: "shoulders", share: 0.06 },
+    regions: [
+      { region: "core", share: 0.72 },
+      { region: "quads", share: 0.12 },
+      { region: "lats", share: 0.1 },
+      { region: "front_delt", share: 0.06 },
     ],
-    fatigueHalfLifeHours: 30,
-    standardRatio: 0.12,
   },
   "Ab Wheel Rollout": {
-    muscles: [
-      { muscle: "core", share: 0.76 },
-      { muscle: "shoulders", share: 0.12 },
-      { muscle: "back", share: 0.12 },
+    regions: [
+      { region: "core", share: 0.76 },
+      { region: "lats", share: 0.12 },
+      { region: "front_delt", share: 0.12 },
     ],
-    fatigueHalfLifeHours: 34,
-    standardRatio: 0.08,
   },
   "Weighted Cable Crunch": {
-    muscles: [{ muscle: "core", share: 1 }],
-    fatigueHalfLifeHours: 30,
-    standardRatio: 0.42,
+    regions: [{ region: "core", share: 1 }],
   },
 };
 
@@ -353,20 +333,172 @@ export function epley(weight: number, reps: number): number {
   return weight * (1 + r / 30);
 }
 
-function fallbackModel(muscleGroup: string): ExerciseModel {
-  const key = muscleGroup.toLowerCase();
-  const muscle =
-    key.includes("chest") ? "chest" :
-    key.includes("back") || key.includes("lat") ? "back" :
-    key.includes("shoulder") || key.includes("delt") ? "shoulders" :
-    key.includes("bicep") ? "biceps" :
-    key.includes("tricep") ? "triceps" :
-    key.includes("quad") ? "quads" :
-    key.includes("hamstring") ? "hamstrings" :
-    key.includes("glute") ? "glutes" :
-    key.includes("calf") || key.includes("calves") ? "calves" :
-    "core";
-  return { muscles: [{ muscle, share: 1 }], fatigueHalfLifeHours: DEFAULT_HALF_LIFE, standardRatio: 0.5 };
+// Map an unknown exercise's stored muscle_group string onto a region, so newly
+// added exercises still contribute somewhere sensible.
+function fallbackRegion(muscleGroup: string): RegionId {
+  const k = muscleGroup.toLowerCase();
+  if (k.includes("chest")) return "chest";
+  if (k.includes("rear")) return "rear_delt";
+  if (k.includes("side") || k.includes("lateral")) return "side_delt";
+  if (k.includes("front")) return "front_delt";
+  if (k.includes("trap")) return "traps";
+  if (k.includes("delt") || k.includes("shoulder")) return "side_delt";
+  if (k.includes("lat")) return "lats";
+  if (k.includes("back")) return "upper_back";
+  if (k.includes("bicep")) return "biceps";
+  if (k.includes("tricep")) return "triceps";
+  if (k.includes("quad")) return "quads";
+  if (k.includes("ham")) return "hamstrings";
+  if (k.includes("glute")) return "glutes";
+  if (k.includes("calf") || k.includes("calv")) return "calves";
+  return "core";
+}
+
+function modelFor(set: InsightSet): ExerciseModel {
+  return (
+    EXERCISE_MODELS[set.exerciseName] ?? {
+      regions: [{ region: fallbackRegion(set.muscleGroup), share: 1 }],
+    }
+  );
+}
+
+const WEEK_MS = 7 * 24 * 3_600_000;
+
+/* ------------------------------- Volume ------------------------------- */
+
+export interface RegionVolume {
+  region: RegionId;
+  label: string;
+  group: RegionGroup;
+  weeklySets: number; // share-weighted effective sets, last 7 days
+  weeklyVolumeLb: number; // Σ weight×reps×share, last 7 days
+  mev: number;
+  mrv: number;
+  status: "untrained" | "under" | "optimal" | "over";
+}
+
+export function computeVolumeByRegion(
+  sets: InsightSet[],
+  options: { now?: Date } = {},
+): RegionVolume[] {
+  const nowMs = (options.now ?? new Date()).getTime();
+  const weeklySets = new Map<RegionId, number>();
+  const weeklyVolume = new Map<RegionId, number>();
+
+  for (const set of sets) {
+    // A hard working set counts regardless of external load (bodyweight work is
+    // still a set); warm-ups never count. Tonnage only accrues when loaded.
+    if (set.isWarmup || set.reps <= 0) continue;
+    const ageMs = nowMs - new Date(set.completedAt).getTime();
+    if (ageMs < 0 || ageMs > WEEK_MS) continue;
+    const model = modelFor(set);
+    const tonnage = set.weight > 0 ? set.weight * set.reps : 0;
+    for (const c of model.regions) {
+      weeklySets.set(c.region, (weeklySets.get(c.region) ?? 0) + c.share);
+      weeklyVolume.set(c.region, (weeklyVolume.get(c.region) ?? 0) + tonnage * c.share);
+    }
+  }
+
+  return REGION_ORDER.map((region) => {
+    const sets = Math.round((weeklySets.get(region) ?? 0) * 10) / 10;
+    const { mev, mrv } = VOLUME_LANDMARKS[region];
+    const status: RegionVolume["status"] =
+      sets <= 0 ? "untrained" : sets < mev ? "under" : sets > mrv ? "over" : "optimal";
+    return {
+      region,
+      label: REGION_LABELS[region],
+      group: REGION_GROUP[region],
+      weeklySets: sets,
+      weeklyVolumeLb: Math.round(weeklyVolume.get(region) ?? 0),
+      mev,
+      mrv,
+      status,
+    };
+  });
+}
+
+/* ------------------------------ Strength ------------------------------ */
+
+export type LiftName = "bench_press" | "back_squat" | "deadlift" | "overhead_press";
+
+export type StrengthLevel =
+  | "Beginner"
+  | "Novice"
+  | "Intermediate"
+  | "Advanced"
+  | "Elite";
+
+interface StrengthGroupDef {
+  key: string;
+  label: string;
+  // Tracked lift whose entered 1RM seeds the estimate (if any).
+  liftName: LiftName | null;
+  // Logged exercises that count as benchmark attempts for this group.
+  exercises: string[];
+  // Bodyweight-relative load that defines the "Intermediate" threshold (100%).
+  standardRatio: number;
+  // Pull-ups etc.: the logged weight is *added* load, so total = bodyweight + load.
+  bodyweightAdded: boolean;
+  hint: string;
+}
+
+const STRENGTH_GROUPS: StrengthGroupDef[] = [
+  {
+    key: "bench",
+    label: "Bench Press",
+    liftName: "bench_press",
+    exercises: ["Bench Press", "Bench Press 1RM Test"],
+    standardRatio: 1.0,
+    bodyweightAdded: false,
+    hint: "Set your bench 1RM in Lifts",
+  },
+  {
+    key: "squat",
+    label: "Back Squat",
+    liftName: "back_squat",
+    exercises: ["Back Squat"],
+    standardRatio: 1.35,
+    bodyweightAdded: false,
+    hint: "Set your squat 1RM in Lifts",
+  },
+  {
+    key: "ohp",
+    label: "Overhead Press",
+    liftName: "overhead_press",
+    exercises: ["Overhead Press"],
+    standardRatio: 0.6,
+    bodyweightAdded: false,
+    hint: "Log or set an overhead press 1RM",
+  },
+  {
+    key: "deadlift",
+    label: "Deadlift",
+    liftName: "deadlift",
+    exercises: [],
+    standardRatio: 1.65,
+    bodyweightAdded: false,
+    hint: "Set your deadlift 1RM in Lifts",
+  },
+  {
+    key: "pullup",
+    label: "Weighted Pull-up",
+    liftName: null,
+    exercises: ["Weighted Pull-up"],
+    standardRatio: 1.25, // total system load (bodyweight + added) at Intermediate
+    bodyweightAdded: true,
+    hint: "Log a weighted pull-up",
+  },
+];
+
+export interface StrengthGroupResult {
+  key: string;
+  label: string;
+  score: number | null; // % of the bodyweight-scaled standard
+  level: StrengthLevel | null;
+  e1rm: number | null;
+  standard: number | null;
+  source: "1rm" | "logged" | null;
+  hint: string;
 }
 
 function ageFactor(age: number | null): number {
@@ -377,79 +509,99 @@ function ageFactor(age: number | null): number {
   return 0.64;
 }
 
-const WEEK_MS = 7 * 24 * 3_600_000;
-// One muscle accumulating this much recovery-weighted effective-set stress is
-// treated as "fully fatigued" (fatigue = 100). Roughly: ~10 hard direct sets
-// all performed in the last few hours. Picked so a typical heavy session of a
-// muscle reads high (~60-90) right after, decaying toward 0 over a few days,
-// while a rested muscle reads near 0. Absolute, not self-normalized.
-const FULL_FATIGUE_STRESS = 10;
+// Uniform level bands relative to each lift's Intermediate threshold (100%).
+// Roughly tracks StrengthLevel's beginner→elite spacing across the big lifts.
+function levelFor(score: number): StrengthLevel {
+  if (score < 70) return "Beginner";
+  if (score < 100) return "Novice";
+  if (score < 135) return "Intermediate";
+  if (score < 175) return "Advanced";
+  return "Elite";
+}
 
-export function computeMuscleInsights(
+export function computeStrength(
   sets: InsightSet[],
-  options: { bodyWeightLb: number | null; age: number | null; now?: Date },
-): MuscleInsight[] {
-  const now = options.now ?? new Date();
-  const nowMs = now.getTime();
+  options: {
+    lifts: Partial<Record<LiftName, number | null>>;
+    bodyWeightLb: number | null;
+    age: number | null;
+  },
+): StrengthGroupResult[] {
   const bodyWeight = Math.max(70, options.bodyWeightLb ?? 185);
   const ageAdj = ageFactor(options.age);
 
-  // Recovery-weighted fatigue stress (drives the 0-100 fatigue gauge).
-  const stress = new Map<MuscleId, number>();
-  // Honest last-7-day working volume credited to each muscle by involvement share.
-  const weeklySets = new Map<MuscleId, number>();
-  const weeklyVolume = new Map<MuscleId, number>();
-  const best = new Map<MuscleId, { exercise: string; e1rm: number; standard: number; score: number }>();
-
+  // Best logged e1RM per benchmark exercise.
+  const bestLoggedByExercise = new Map<string, number>();
   for (const set of sets) {
-    // Exclude warm-ups and empty sets from every stat. Warm-ups carry no
-    // meaningful training stimulus and would inflate volume/fatigue.
-    if (set.isWarmup || set.reps <= 0 || set.weight <= 0) continue;
-    const model = EXERCISE_MODELS[set.exerciseName] ?? fallbackModel(set.muscleGroup);
-    const estimated = epley(set.weight, set.reps);
-    const ageMs = Math.max(0, nowMs - new Date(set.completedAt).getTime());
-    const hoursAgo = ageMs / 3_600_000;
-    const recovery = Math.pow(0.5, hoursAgo / model.fatigueHalfLifeHours);
-    // RIR weighting: sets taken closer to failure are more fatiguing. A logged
-    // RIR of 0 (true failure) is most stressful; high RIR (left reps in the
-    // tank) least. Clamped so missing/odd values stay sane.
-    const rir = set.rir == null ? 2 : Math.max(0, Math.min(5, set.rir));
-    const rirFactor = Math.max(0.6, 1 - rir * 0.08);
-    // One working set contributes ~1 "effective set" of stress, scaled by how
-    // hard it was and how recently it was done. Volume-load no longer leaks in
-    // via sqrt(weight×reps); that conflated load with set count.
-    const setStress = rirFactor * recovery;
-    const volumeLoad = set.weight * set.reps;
-    const within7d = ageMs <= WEEK_MS;
-
-    for (const c of model.muscles) {
-      stress.set(c.muscle, (stress.get(c.muscle) ?? 0) + setStress * c.share);
-      if (within7d) {
-        weeklySets.set(c.muscle, (weeklySets.get(c.muscle) ?? 0) + c.share);
-        weeklyVolume.set(c.muscle, (weeklyVolume.get(c.muscle) ?? 0) + volumeLoad * c.share);
-      }
-      const standard = bodyWeight * model.standardRatio * ageAdj;
-      const score = estimated / Math.max(1, standard);
-      const current = best.get(c.muscle);
-      if (!current || score > current.score) {
-        best.set(c.muscle, { exercise: set.exerciseName, e1rm: estimated, standard, score });
-      }
-    }
+    if (set.isWarmup || set.reps <= 0) continue;
+    const prev = bestLoggedByExercise.get(set.exerciseName) ?? 0;
+    // Note: stored weight may be *added* load; bodyweight is folded in per-group
+    // below, so here we just track the loaded e1RM and adjust at scoring time.
+    const e = epley(set.weight, set.reps);
+    if (e > prev) bestLoggedByExercise.set(set.exerciseName, e);
+    // Also track best raw (weight,reps) so bodyweight-added groups can rebuild.
   }
 
-  return MUSCLE_ORDER.map((muscle) => {
-    const b = best.get(muscle);
-    const s = stress.get(muscle) ?? 0;
+  // For bodyweight-added groups we need the best TOTAL-load e1RM, which means
+  // recomputing with bodyweight folded into each set rather than post-hoc.
+  const bestTotalByExercise = new Map<string, number>();
+  for (const set of sets) {
+    if (set.isWarmup || set.reps <= 0) continue;
+    const total = bodyWeight + set.weight; // only meaningful for bw-added groups
+    const e = epley(total, set.reps);
+    const prev = bestTotalByExercise.get(set.exerciseName) ?? 0;
+    if (e > prev) bestTotalByExercise.set(set.exerciseName, e);
+  }
+
+  return STRENGTH_GROUPS.map((g) => {
+    const standard = Math.max(1, bodyWeight * g.standardRatio * ageAdj);
+
+    let e1rm: number | null = null;
+    let source: "1rm" | "logged" | null = null;
+
+    // 1) Entered 1RM (most authoritative) — only for non-bodyweight lifts.
+    if (!g.bodyweightAdded && g.liftName) {
+      const oneRm = options.lifts[g.liftName];
+      if (oneRm != null && oneRm > 0) {
+        e1rm = oneRm;
+        source = "1rm";
+      }
+    }
+
+    // 2) Best logged benchmark set (folds bodyweight in for bw-added groups).
+    for (const ex of g.exercises) {
+      const logged = g.bodyweightAdded
+        ? bestTotalByExercise.get(ex)
+        : bestLoggedByExercise.get(ex);
+      if (logged != null && logged > 0 && (e1rm == null || logged > e1rm)) {
+        e1rm = logged;
+        source = source === "1rm" && (options.lifts[g.liftName as LiftName] ?? 0) >= logged ? "1rm" : "logged";
+      }
+    }
+
+    if (e1rm == null) {
+      return {
+        key: g.key,
+        label: g.label,
+        score: null,
+        level: null,
+        e1rm: null,
+        standard: Math.round(standard),
+        source: null,
+        hint: g.hint,
+      };
+    }
+
+    const score = Math.round((e1rm / standard) * 100);
     return {
-      muscle,
-      label: MUSCLE_LABELS[muscle],
-      fatigue: Math.max(0, Math.min(100, Math.round((s / FULL_FATIGUE_STRESS) * 100))),
-      weeklySets: Math.round((weeklySets.get(muscle) ?? 0) * 10) / 10,
-      weeklyVolumeLb: Math.round(weeklyVolume.get(muscle) ?? 0),
-      strengthScore: b ? Math.round(b.score * 100) : null,
-      bestExercise: b?.exercise ?? null,
-      bestE1rm: b ? Math.round(b.e1rm) : null,
-      standardE1rm: b ? Math.round(b.standard) : null,
+      key: g.key,
+      label: g.label,
+      score,
+      level: levelFor(score),
+      e1rm: Math.round(e1rm),
+      standard: Math.round(standard),
+      source,
+      hint: g.hint,
     };
   });
 }
