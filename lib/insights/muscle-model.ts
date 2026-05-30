@@ -180,10 +180,12 @@ export const EXERCISE_MODELS: Record<string, ExerciseModel> = {
     ],
   },
   "Seated Cable Row": {
+    // Upper-back focused: grip + pull path to the mid-back drives rhomboids /
+    // mid-traps; lats assist. (Vertical pulls remain lats-primary.)
     regions: [
-      { region: "lats", share: 0.4 },
-      { region: "upper_back", share: 0.34 },
-      { region: "biceps", share: 0.18 },
+      { region: "upper_back", share: 0.45 },
+      { region: "lats", share: 0.3 },
+      { region: "biceps", share: 0.17 },
       { region: "rear_delt", share: 0.08 },
     ],
   },
