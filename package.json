@@ -22,6 +22,8 @@
     "db:apply-upper-b-tweaks:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/apply-upper-b-tweaks.ts",
     "db:apply-plan-v3-tweaks": "tsx lib/db/apply-plan-v3-tweaks.ts",
     "db:apply-plan-v3-tweaks:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/apply-plan-v3-tweaks.ts",
+    "db:set-accessory-plan": "tsx lib/db/set-accessory-plan.ts",
+    "db:set-accessory-plan:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/set-accessory-plan.ts",
     "db:migrate-multi-user": "tsx lib/db/migrate-multi-user.ts",
     "db:migrate-multi-user:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/migrate-multi-user.ts",
     "test": "vitest run",
