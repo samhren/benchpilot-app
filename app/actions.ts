@@ -36,6 +36,7 @@ import {
   COACH_SYSTEM_PROMPT,
   hashCoachContext,
   type CoachDigest,
+  type TmInfo,
 } from "@/lib/insights/coach";
 import { generateJson, geminiModel, GeminiError, isGeminiConfigured } from "@/lib/ai/gemini";
 
@@ -979,14 +980,19 @@ export async function generateCoachDigestAction(
     .orderBy(desc(bodyWeightLogs.date))
     .limit(1);
   const liftRows = await db
-    .select({ name: lifts.name, currentOneRm: lifts.currentOneRm })
+    .select({ id: lifts.id, name: lifts.name, currentOneRm: lifts.currentOneRm, trainingMax: lifts.trainingMax })
     .from(lifts)
     .where(eq(lifts.userId, userId));
   const [program] = await db
-    .select({ week: programs.currentWeek, block: programs.currentBlock })
+    .select({ week: programs.currentWeek, block: programs.currentBlock, totalWeeks: programs.totalWeeks })
     .from(programs)
     .where(and(eq(programs.userId, userId), eq(programs.status, "active")))
     .limit(1);
+  // TM-change history, for "have you been progressing" (recent bump count).
+  const tmRows = await db
+    .select({ liftId: tmHistory.liftId, reason: tmHistory.reason, effectiveFrom: tmHistory.effectiveFrom })
+    .from(tmHistory)
+    .where(eq(tmHistory.userId, userId));
 
   const rows = await db
     .select({
@@ -996,6 +1002,7 @@ export async function generateCoachDigestAction(
       reps: workoutSets.repsCompleted,
       rir: workoutSets.rir,
       isWarmup: workoutSets.isWarmup,
+      isAmrap: workoutSets.isAmrap,
       completedAt: workoutSets.completedAt,
     })
     .from(workoutSets)
@@ -1022,12 +1029,27 @@ export async function generateCoachDigestAction(
     reps: r.reps ?? 0,
     rir: r.rir,
     isWarmup: r.isWarmup,
+    isAmrap: r.isAmrap,
     completedAt: new Date(r.completedAt as Date).toISOString(),
   }));
 
   const bodyWeight = settingsRow?.comparisonBodyWeightLb ?? latestBodyWeight?.weightLb ?? null;
   const liftOneRms: Partial<Record<LiftName, number | null>> = {};
   for (const l of liftRows) liftOneRms[l.name as LiftName] = l.currentOneRm;
+
+  // Per-lift training max + count of TM increases in the last ~6 weeks.
+  const SIX_WEEKS_MS = 42 * 86_400_000;
+  const sinceMs = Date.now() - SIX_WEEKS_MS;
+  const tmInfo: TmInfo[] = liftRows.map((l) => ({
+    liftName: l.name as LiftName,
+    trainingMax: l.trainingMax,
+    recentBumps: tmRows.filter(
+      (t) =>
+        t.liftId === l.id &&
+        (t.reason === "amrap_bump" || t.reason === "manual") &&
+        new Date(t.effectiveFrom as Date).getTime() >= sinceMs,
+    ).length,
+  }));
 
   const volume = computeVolumeByRegion(sets);
   const strength = computeStrength(sets, {
@@ -1042,7 +1064,8 @@ export async function generateCoachDigestAction(
     strength,
     bodyWeightLb: bodyWeight,
     age: settingsRow?.age ?? null,
-    program: program ? { week: program.week, block: program.block } : null,
+    program: program ? { week: program.week, block: program.block, totalWeeks: program.totalWeeks } : null,
+    tmInfo,
   });
   const inputHash = hashCoachContext(ctx);
 

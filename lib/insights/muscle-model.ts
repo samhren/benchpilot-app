@@ -49,6 +49,9 @@ export interface InsightSet {
   rir: number | null;
   isWarmup: boolean;
   completedAt: string;
+  // Optional — only the AI coach uses it (to read AMRAP performance). Volume and
+  // strength computations ignore it.
+  isAmrap?: boolean;
 }
 
 export const REGION_LABELS: Record<RegionId, string> = {
