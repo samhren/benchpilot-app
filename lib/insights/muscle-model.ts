@@ -462,13 +462,18 @@ const STRENGTH_GROUPS: StrengthGroupDef[] = [
     hint: "Set your squat 1RM in Lifts",
   },
   {
+    // Graded against the dumbbell shoulder-press standard (per-dumbbell), since
+    // that's how the program's overhead pressing is logged (weight = one
+    // dumbbell). StrengthLevel DB shoulder press, 175 lb male: Intermediate
+    // ≈ 0.40× bodyweight per dumbbell. A barbell-OHP standard (~0.6×) would
+    // wrongly read a normal DB press as "novice".
     key: "ohp",
     label: "Overhead Press",
     liftName: "overhead_press",
-    exercises: ["Overhead Press"],
-    standardRatio: 0.6,
+    exercises: ["Overhead Press", "Seated DB Press", "Arnold Press", "Machine Shoulder Press"],
+    standardRatio: 0.4,
     bodyweightAdded: false,
-    hint: "Log or set an overhead press 1RM",
+    hint: "Log a shoulder press",
   },
   {
     key: "deadlift",
@@ -530,27 +535,28 @@ export function computeStrength(
   const bodyWeight = Math.max(70, options.bodyWeightLb ?? 185);
   const ageAdj = ageFactor(options.age);
 
-  // Best logged e1RM per benchmark exercise.
-  const bestLoggedByExercise = new Map<string, number>();
-  for (const set of sets) {
-    if (set.isWarmup || set.reps <= 0) continue;
-    const prev = bestLoggedByExercise.get(set.exerciseName) ?? 0;
-    // Note: stored weight may be *added* load; bodyweight is folded in per-group
-    // below, so here we just track the loaded e1RM and adjust at scoring time.
-    const e = epley(set.weight, set.reps);
-    if (e > prev) bestLoggedByExercise.set(set.exerciseName, e);
-    // Also track best raw (weight,reps) so bodyweight-added groups can rebuild.
-  }
+  // Working sets are usually submaximal (RIR 1-2), so fold reps-in-reserve into
+  // the rep count before the Epley estimate — otherwise an accessory taken to
+  // RIR 2 reads ~7% weaker than the lifter actually is.
+  const effReps = (set: InsightSet) =>
+    set.reps + Math.max(0, Math.min(5, set.rir ?? 0));
 
-  // For bodyweight-added groups we need the best TOTAL-load e1RM, which means
-  // recomputing with bodyweight folded into each set rather than post-hoc.
+  // Best logged e1RM per benchmark exercise (weight = stored loaded weight).
+  const bestLoggedByExercise = new Map<string, number>();
+  // For bodyweight-added groups (pull-ups) we need TOTAL-load e1RM, so
+  // bodyweight is folded into each set rather than post-hoc.
   const bestTotalByExercise = new Map<string, number>();
   for (const set of sets) {
     if (set.isWarmup || set.reps <= 0) continue;
-    const total = bodyWeight + set.weight; // only meaningful for bw-added groups
-    const e = epley(total, set.reps);
-    const prev = bestTotalByExercise.get(set.exerciseName) ?? 0;
-    if (e > prev) bestTotalByExercise.set(set.exerciseName, e);
+    const reps = effReps(set);
+    const loaded = epley(set.weight, reps);
+    if (loaded > (bestLoggedByExercise.get(set.exerciseName) ?? 0)) {
+      bestLoggedByExercise.set(set.exerciseName, loaded);
+    }
+    const total = epley(bodyWeight + set.weight, reps);
+    if (total > (bestTotalByExercise.get(set.exerciseName) ?? 0)) {
+      bestTotalByExercise.set(set.exerciseName, total);
+    }
   }
 
   return STRENGTH_GROUPS.map((g) => {
