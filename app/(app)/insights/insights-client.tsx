@@ -113,8 +113,8 @@ export default function InsightsClient({
 
       <div className="text-[10px] mt-5 leading-relaxed" style={{ color: BP.textFaint }}>
         Strength: best e1RM (entered 1RM or logged sets) vs a bodyweight-scaled standard —
-        compound lifts only; isolation work isn&apos;t graded for strength. Volume: share-weighted
-        hard sets over the last 7 days vs MEV/MRV landmarks. Standards are male-oriented and
+        compound lifts only; isolation work isn&apos;t graded for strength. Volume: hard sets over the
+        last 7 days (direct = 1, indirect = ½) vs MEV/MRV landmarks. Standards are male-oriented and
         bodyweight{age ? "/age" : ""}-scaled. Model {MUSCLE_MODEL_SOURCE.updated}.
       </div>
     </div>

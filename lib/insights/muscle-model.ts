@@ -370,7 +370,7 @@ export interface RegionVolume {
   region: RegionId;
   label: string;
   group: RegionGroup;
-  weeklySets: number; // share-weighted effective sets, last 7 days
+  weeklySets: number; // effective sets (direct=1, indirect=0.5), last 7 days
   weeklyVolumeLb: number; // Σ weight×reps×share, last 7 days
   mev: number;
   mrv: number;
@@ -393,8 +393,16 @@ export function computeVolumeByRegion(
     if (ageMs < 0 || ageMs > WEEK_MS) continue;
     const model = modelFor(set);
     const tonnage = set.weight > 0 ? set.weight * set.reps : 0;
+    // Count sets the way volume landmarks are defined: the muscle the exercise
+    // primarily trains gets a full set (direct = 1.0); meaningfully-involved
+    // secondary movers get a fractional set (indirect = 0.5); minor stabilisers
+    // don't count toward set volume. (Share is still used for tonnage split.)
+    const primary = model.regions.reduce((a, b) => (b.share > a.share ? b : a)).region;
     for (const c of model.regions) {
-      weeklySets.set(c.region, (weeklySets.get(c.region) ?? 0) + c.share);
+      const setCredit = c.region === primary ? 1 : c.share >= 0.2 ? 0.5 : 0;
+      if (setCredit > 0) {
+        weeklySets.set(c.region, (weeklySets.get(c.region) ?? 0) + setCredit);
+      }
       weeklyVolume.set(c.region, (weeklyVolume.get(c.region) ?? 0) + tonnage * c.share);
     }
   }
