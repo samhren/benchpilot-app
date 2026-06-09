@@ -48,3 +48,9 @@ Rule of thumb: if your change ships to users via `origin/main`, bump
   user explicitly asks.
 - Railway auto-deploys from `origin/main`. Data migrations are manual `*:prod`
   scripts. Default to leaving prod untouched.
+- **Builds run clean.** `prebuild` (`rm -rf .next`) wipes the build dir before
+  every `next build`, because Nixpacks reused a cached `.next` and shipped a
+  stale React **client-reference manifest** — a conditionally-rendered client
+  component (e.g. `MissedDayBanner`) was missing from it, so the page 500'd with
+  *"Could not find the module … in the React Client Manifest"* only for users who
+  hit that branch. Don't remove `prebuild` to speed up builds.
