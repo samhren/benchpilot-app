@@ -51,6 +51,11 @@ describe("squatSetMeetsPrescription", () => {
 });
 
 describe("isCleanSquatSession", () => {
+  it("moves you up when all four sets hit the prescribed weight and reps", () => {
+    const prescribed = { ...base, repsCompleted: 5, weightUsed: 185 };
+    expect(isCleanSquatSession([prescribed, prescribed, prescribed, prescribed])).toBe(true);
+  });
+
   it("is clean when every set meets the prescription", () => {
     expect(
       isCleanSquatSession([
