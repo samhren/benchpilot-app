@@ -1,12 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "sonner";
+import { APP_VERSION } from "@/lib/version";
 
 export const metadata: Metadata = {
   title: "BenchPilot",
   description: "Evidence-based lifting tracker",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "BenchPilot" },
+  // Cache-busting marker — renders <meta name="app-version">. See lib/version.ts.
+  other: { "app-version": APP_VERSION },
 };
 
 export const viewport: Viewport = {
