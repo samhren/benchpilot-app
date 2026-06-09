@@ -98,11 +98,17 @@ export default async function ActivePage({
   const settings = await getSettings();
   const allExercises = await getAllExercises();
   const benchTm = lifts.find((l) => l.name === "bench_press")?.trainingMax ?? null;
+  const liftNameById = new Map(lifts.map((l) => [l.id, l.name]));
 
   // Flatten session_exercises into ordered SetRow[]. Weights are already snapshotted
   // into session_exercises.weightPrescribed (with deloadFactor applied at start).
   const rows: SetRow[] = [];
   for (const e of exs) {
+    // The squat is programmed off its 1RM but the lifter picks the actual load
+    // each session (linear progression), so its weight is editable. Bench is
+    // TM-driven and stays fixed.
+    const liftName = e.se.liftId ? liftNameById.get(e.se.liftId) ?? null : null;
+    const weightEditable = liftName === "back_squat";
     const lastSession = await getLastSessionSetsForExercise(e.ex.id, sessionId);
     const lastSet = lastSession?.sets[lastSession.sets.length - 1] ?? null;
     const last = lastSet ? { reps: lastSet.reps, weight: lastSet.weight } : null;
@@ -162,6 +168,7 @@ export default async function ActivePage({
             sessionLabel: day.displayName,
             tempo,
             requiresWeightInput: wp == null,
+            weightEditable,
             last,
             lastSession: lastSessionRow,
             logged: loggedRow
@@ -211,6 +218,7 @@ export default async function ActivePage({
           sessionLabel: day.displayName,
           tempo,
           requiresWeightInput: e.se.weightPrescribed == null,
+          weightEditable,
           last,
           lastSession: lastSessionRow,
           logged: loggedRow

@@ -153,7 +153,7 @@ export default function ActiveWorkout({
       setReps(logged.repsCompleted);
       setRir(logged.rir);
       setWeightOverride(
-        current?.requiresWeightInput
+        current?.requiresWeightInput || current?.weightEditable
           ? logged.weightUsed
           : current?.weightPrescribed != null && logged.weightUsed === current.weightPrescribed
             ? null
@@ -162,9 +162,16 @@ export default function ActiveWorkout({
     } else {
       setReps(current?.isAmrap ? null : current?.repsPrescribed ?? null);
       setRir(current?.kind === "main" ? 2 : 1);
-      // For non-bench rows the user must enter weight each set; pre-fill with last
-      // session's weight if available so they only have to adjust.
-      setWeightOverride(current?.requiresWeightInput ? current?.last?.weight ?? null : null);
+      // Pre-fill the editable weight field: accessories carry last session's
+      // weight, the squat carries its programmed working weight (editable each
+      // session), and TM-driven bench keeps its prescription with no override.
+      setWeightOverride(
+        current?.requiresWeightInput
+          ? current?.last?.weight ?? null
+          : current?.weightEditable
+            ? current?.weightPrescribed ?? null
+            : null,
+      );
     }
     setShowPlates(false);
     // setLog is in the deps so navigating to a freshly-logged set picks it up.
@@ -174,6 +181,8 @@ export default function ActiveWorkout({
     current?.kind,
     current?.repsPrescribed,
     current?.requiresWeightInput,
+    current?.weightEditable,
+    current?.weightPrescribed,
     current?.last?.weight,
     setLog,
   ]);
@@ -304,6 +313,10 @@ export default function ActiveWorkout({
     return `${m}:${String(s).padStart(2, "0")}`;
   })();
 
+  // Squat: weight is programmed but the lifter sets the real load each session,
+  // so it gets the same editable stepper as accessories (pre-filled, not blank).
+  const weightEditable = !!current?.weightEditable;
+  const usesWeightInput = !!current?.requiresWeightInput || weightEditable;
   const weightDisplay = current?.requiresWeightInput
     ? weightOverride
     : weightOverride ?? current?.weightPrescribed ?? null;
@@ -707,7 +720,7 @@ export default function ActiveWorkout({
       ) : null}
 
       {/* Weight row */}
-      {current.requiresWeightInput ? (
+      {usesWeightInput ? (
         <div className="px-5 pt-4">
           <div
             className="mb-2 ml-1"
@@ -729,9 +742,24 @@ export default function ActiveWorkout({
           <WeightInput
             value={weightOverride}
             onChange={setWeightOverride}
-            placeholder={current.last ? String(current.last.weight) : "0"}
+            placeholder={
+              current.weightPrescribed != null
+                ? String(current.weightPrescribed)
+                : current.last
+                  ? String(current.last.weight)
+                  : "0"
+            }
           />
-          {current.last ? (
+          {weightEditable && current.weightPrescribed != null ? (
+            <div className="text-[12px] mt-1.5 ml-1" style={{ color: BP.textFaint }}>
+              Programmed: <Mono>{current.weightPrescribed}</Mono> lb — adjust to what you lift
+              {current.last ? (
+                <>
+                  {" "}· last <Mono>{current.last.weight}</Mono> lb × <Mono>{current.last.reps}</Mono>
+                </>
+              ) : null}
+            </div>
+          ) : current.last ? (
             <div className="text-[12px] mt-1.5 ml-1" style={{ color: BP.textFaint }}>
               Last: <Mono>{current.last.weight}</Mono> lb × <Mono>{current.last.reps}</Mono>
             </div>

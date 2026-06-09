@@ -20,6 +20,7 @@ import {
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { resolveTrainingMax, resolveBenchPrescription } from "@/lib/programming/training-max";
 import { applyAmrapBump } from "@/lib/programming/amrap";
+import { isCleanSquatSession } from "@/lib/programming/squat-progression";
 import { isoDate } from "@/lib/program-state";
 import { requireUserId } from "@/lib/auth";
 
@@ -438,7 +439,6 @@ async function maybeApplySquatProgression(userId: string, sessionId: string) {
       repsCompleted: workoutSets.repsCompleted,
       weightPrescribed: workoutSets.weightPrescribed,
       weightUsed: workoutSets.weightUsed,
-      rir: workoutSets.rir,
     })
     .from(workoutSets)
     .innerJoin(sessionExercises, eq(workoutSets.sessionExerciseId, sessionExercises.id))
@@ -451,12 +451,10 @@ async function maybeApplySquatProgression(userId: string, sessionId: string) {
     );
 
   if (rows.length === 0) return;
-  const clean = rows.every((r) => {
-    if (r.repsPrescribed == null || r.repsCompleted == null) return false;
-    if (r.weightPrescribed == null || r.weightUsed == null) return false;
-    return r.repsCompleted >= r.repsPrescribed && r.weightUsed >= r.weightPrescribed && (r.rir ?? 0) >= 1;
-  });
-  if (!clean) return;
+  // Advance only when every working set met or beat its prescription, judged by
+  // estimated 1RM — so a heavier load for fewer reps still earns the bump. See
+  // lib/programming/squat-progression.ts.
+  if (!isCleanSquatSession(rows)) return;
 
   const oldWorkingWeight = resolveBenchPrescription(75, squat.currentOneRm);
   const nextWorkingWeight = oldWorkingWeight + 5;

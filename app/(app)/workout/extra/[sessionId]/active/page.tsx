@@ -76,6 +76,9 @@ export default async function ExtraActivePage({ params }: { params: Promise<Para
         sessionLabel: "Extra session",
         tempo: "controlled",
         requiresWeightInput: true,
+        // Extra sessions are free-form: weight is always entered manually, so the
+        // programmed-but-editable squat treatment doesn't apply here.
+        weightEditable: false,
         last,
         lastSession: lastSessionRow,
         logged: (() => {

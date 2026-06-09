@@ -17,6 +17,10 @@ export interface SetRow {
   tempo: Tempo;
   equipment: string | null;
   requiresWeightInput: boolean;
+  // Weight is programmed (a working-weight prescription) but the lifter is meant
+  // to set the actual load each session — the squat's linear progression. Unlike
+  // bench (TM-driven, fixed), these rows surface an editable weight stepper.
+  weightEditable: boolean;
   last: { reps: number; weight: number } | null;
   lastSession: {
     date: number;
