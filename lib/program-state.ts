@@ -4,10 +4,26 @@ import { programs } from "@/lib/db/schema";
 import { getCurrentBlock, type Block } from "@/lib/programming/blocks";
 import { eq } from "drizzle-orm";
 
+// A stored timezone can be invalid for this runtime — a value a device reported
+// that Node's ICU doesn't recognize, or one saved before we validated input.
+// `Intl.DateTimeFormat` throws a RangeError on a bad zone, which would crash
+// every server render that formats a date (e.g. the dashboard) for that user.
+// Fall back to UTC instead of letting the page 500; the client's
+// TimezoneBootstrap then re-detects and saves a valid zone on next render.
+export function safeTimeZone(tz: string | undefined | null): string {
+  if (!tz) return "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return "UTC";
+  }
+}
+
 // Format a Date as YYYY-MM-DD in the given IANA timezone.
 export function isoDateInTz(d: Date, tz: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
+    timeZone: safeTimeZone(tz),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -21,7 +37,7 @@ export function isoDateInTz(d: Date, tz: string): string {
 // 1 = Mon, 7 = Sun, evaluated in tz.
 export function dayOfWeekInTz(d: Date, tz: string): number {
   const wd = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
+    timeZone: safeTimeZone(tz),
     weekday: "short",
   }).format(d);
   const map: Record<string, number> = {

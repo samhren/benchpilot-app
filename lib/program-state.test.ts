@@ -6,9 +6,31 @@ import {
   dayOfWeekInTz,
   getProgramProgress,
   isoDateInTz,
+  safeTimeZone,
   scheduledDateForDay,
   shouldSuggestLongGapDeload,
 } from "./program-state";
+
+describe("safeTimeZone", () => {
+  it("passes through a valid IANA zone", () => {
+    expect(safeTimeZone("America/New_York")).toBe("America/New_York");
+  });
+
+  it("falls back to UTC for a junk or empty zone", () => {
+    expect(safeTimeZone("Not/AZone")).toBe("UTC");
+    expect(safeTimeZone("")).toBe("UTC");
+    expect(safeTimeZone(undefined)).toBe("UTC");
+    expect(safeTimeZone(null)).toBe("UTC");
+  });
+
+  it("keeps the date formatters from throwing on a bad zone", () => {
+    const d = new Date("2026-06-09T12:00:00Z");
+    expect(() => isoDateInTz(d, "Bogus/Zone")).not.toThrow();
+    expect(() => dayOfWeekInTz(d, "Bogus/Zone")).not.toThrow();
+    // Falls back to UTC: noon UTC stays 2026-06-09.
+    expect(isoDateInTz(d, "Bogus/Zone")).toBe("2026-06-09");
+  });
+});
 
 describe("dayOfWeekFromJs", () => {
   it("Monday is 1, Sunday is 7", () => {

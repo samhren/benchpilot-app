@@ -17,6 +17,7 @@ import {
   LONG_GAP_DAYS,
   dayOfWeekInTz,
   getProgramProgress,
+  safeTimeZone,
   shouldSuggestLongGapDeload,
 } from "@/lib/program-state";
 import { TimezoneBootstrap } from "@/components/timezone-bootstrap";
@@ -33,7 +34,9 @@ export default async function Dashboard() {
   if (!program) redirect("/settings");
 
   const settingsRow = await getSettings();
-  const tz = settingsRow?.timezone ?? "UTC";
+  // Guard against an invalid stored zone — a bad value would otherwise crash
+  // every dashboard render for that user (see safeTimeZone).
+  const tz = safeTimeZone(settingsRow?.timezone);
   const today = new Date();
   const progress = getProgramProgress(program.startDate, today, tz, program.totalWeeks);
   const week = progress.week;
