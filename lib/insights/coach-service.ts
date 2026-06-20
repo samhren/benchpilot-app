@@ -116,6 +116,9 @@ export async function ensureCoachDigest(
       rir: workoutSets.rir,
       isWarmup: workoutSets.isWarmup,
       isAmrap: workoutSets.isAmrap,
+      weightPrescribed: workoutSets.weightPrescribed,
+      repsPrescribed: workoutSets.repsPrescribed,
+      percentageOfTm: sessionExercises.percentageOfTm,
       completedAt: workoutSets.completedAt,
     })
     .from(workoutSets)
@@ -143,6 +146,9 @@ export async function ensureCoachDigest(
     rir: r.rir,
     isWarmup: r.isWarmup,
     isAmrap: r.isAmrap,
+    weightPrescribed: r.weightPrescribed,
+    repsPrescribed: r.repsPrescribed,
+    percentageOfTm: r.percentageOfTm,
     completedAt: new Date(r.completedAt as Date).toISOString(),
   }));
 

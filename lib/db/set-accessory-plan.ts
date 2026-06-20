@@ -107,6 +107,17 @@ const CATALOG: Record<string, { muscleGroup: string; equipment: string | null }>
   "Weighted Cable Crunch": { muscleGroup: "abs", equipment: "cable" },
 };
 
+// Resolve catalog ids for every target exercise (creating any missing). The
+// exercises table is a shared global catalog, so this runs once regardless of
+// how many users we then converge.
+export async function resolveTargetExerciseIds(): Promise<Map<string, string>> {
+  const exId = new Map<string, string>();
+  for (const items of Object.values(TARGET)) {
+    for (const it of items) if (!exId.has(it.name)) exId.set(it.name, await ensureExercise(it.name));
+  }
+  return exId;
+}
+
 async function ensureExercise(name: string): Promise<string> {
   const [existing] = await db.select().from(exercises).where(eq(exercises.name, name)).limit(1);
   if (existing) return existing.id;
@@ -119,13 +130,13 @@ async function ensureExercise(name: string): Promise<string> {
   return row.id;
 }
 
-async function unstartedDaysOfType(sessionType: SessionType) {
+async function unstartedDaysOfType(userId: string, sessionType: SessionType) {
   const started = await db
     .selectDistinct({ programDayId: workoutSessions.programDayId })
     .from(workoutSessions)
-    .where(and(eq(workoutSessions.userId, TARGET_USER_ID), isNotNull(workoutSessions.programDayId)));
+    .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.programDayId)));
   const startedIds = started.map((s) => s.programDayId).filter((x): x is string => x != null);
-  const base = and(eq(programDays.sessionType, sessionType), eq(programDays.userId, TARGET_USER_ID));
+  const base = and(eq(programDays.sessionType, sessionType), eq(programDays.userId, userId));
   const where = startedIds.length > 0 ? and(base, notInArray(programDays.id, startedIds)) : base;
   return db
     .select({ id: programDays.id, weekNumber: programDays.weekNumber })
@@ -133,29 +144,29 @@ async function unstartedDaysOfType(sessionType: SessionType) {
     .where(where);
 }
 
-async function main() {
-  console.log(`Setting accessory plan for user ${TARGET_USER_ID} (future weeks only, idempotent)…`);
-
-  // Resolve catalog ids for every target exercise (creating any missing).
-  const exId = new Map<string, string>();
-  for (const items of Object.values(TARGET)) {
-    for (const it of items) if (!exId.has(it.name)) exId.set(it.name, await ensureExercise(it.name));
-  }
-
+// Converge ONE user's future (un-started) program days to the TARGET plan,
+// idempotently. Pass the shared catalog id map from resolveTargetExerciseIds().
+export async function applyAccessoryPlanForUser(
+  userId: string,
+  exId: Map<string, string>,
+): Promise<{ updated: number; inserted: number; deleted: number; days: number }> {
   // Tracked-lift ids for fresh inserts of main lifts.
   const liftRows = await db
     .select({ id: lifts.id, name: lifts.name })
     .from(lifts)
-    .where(eq(lifts.userId, TARGET_USER_ID));
+    .where(eq(lifts.userId, userId));
   const liftId = new Map(liftRows.map((l) => [l.name as LiftName, l.id]));
+
+  let totUpdated = 0;
+  let totInserted = 0;
+  let totDeleted = 0;
+  let totDays = 0;
 
   for (const st of Object.keys(TARGET) as SessionType[]) {
     const items = TARGET[st];
     const isUpper = st.startsWith("upper");
-    const days = await unstartedDaysOfType(st);
-    let updated = 0;
-    let inserted = 0;
-    let deleted = 0;
+    const days = await unstartedDaysOfType(userId, st);
+    totDays += days.length;
 
     for (const d of days) {
       const rows = await db
@@ -181,10 +192,10 @@ async function main() {
             .update(programExercises)
             .set({ sets: it.sets, reps: it.reps, rirTarget: it.rir, orderIndex })
             .where(eq(programExercises.id, existing.id));
-          updated += 1;
+          totUpdated += 1;
         } else {
           await db.insert(programExercises).values({
-            userId: TARGET_USER_ID,
+            userId,
             programDayId: d.id,
             orderIndex,
             exerciseId: id,
@@ -195,7 +206,7 @@ async function main() {
             isAmrapTopSet: false,
             liftId: it.liftName ? liftId.get(it.liftName) ?? null : null,
           });
-          inserted += 1;
+          totInserted += 1;
         }
       }
 
@@ -204,18 +215,33 @@ async function main() {
         if (r.name.startsWith("Bench Press")) continue;
         if (!targetIds.has(r.exerciseId)) {
           await db.delete(programExercises).where(eq(programExercises.id, r.id));
-          deleted += 1;
+          totDeleted += 1;
         }
       }
     }
-    console.log(`  ${st}: ${days.length} future day(s) — ${updated} updated, ${inserted} inserted, ${deleted} deleted`);
   }
+
+  return { updated: totUpdated, inserted: totInserted, deleted: totDeleted, days: totDays };
+}
+
+async function main() {
+  console.log(`Setting accessory plan for user ${TARGET_USER_ID} (future weeks only, idempotent)…`);
+
+  const exId = await resolveTargetExerciseIds();
+  const stats = await applyAccessoryPlanForUser(TARGET_USER_ID, exId);
+  console.log(
+    `  ${stats.days} future day(s) — ${stats.updated} updated, ${stats.inserted} inserted, ${stats.deleted} deleted`,
+  );
 
   console.log("Done.");
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only run when invoked directly (tsx lib/db/set-accessory-plan.ts), NOT when
+// imported by the all-users runner, which reuses the exported helpers above.
+if (process.argv[1] && /set-accessory-plan\.ts$/.test(process.argv[1])) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

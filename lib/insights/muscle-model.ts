@@ -49,9 +49,14 @@ export interface InsightSet {
   rir: number | null;
   isWarmup: boolean;
   completedAt: string;
-  // Optional — only the AI coach uses it (to read AMRAP performance). Volume and
-  // strength computations ignore it.
+  // Optional — only the AI coach uses these. Volume and strength computations
+  // ignore them. They let the coach tell a PROGRAMMED sub-maximal set (a % of
+  // training max — deliberately not a max attempt) from a genuine max effort,
+  // so it never reads a prescribed 205×3 as "the bench is regressing".
   isAmrap?: boolean;
+  weightPrescribed?: number | null;
+  repsPrescribed?: number | null;
+  percentageOfTm?: number | null;
 }
 
 export const REGION_LABELS: Record<RegionId, string> = {

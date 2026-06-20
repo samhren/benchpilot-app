@@ -39,6 +39,7 @@ const ACCESSORY = {
   upper_a: [
     { name: "Weighted Pull-up", muscle: "back", sets: 3, reps: 7, rir: 2, notes: "Or lat pulldown" },
     { name: "Seated Cable Row", muscle: "back", sets: 2, reps: 11, rir: 1, notes: "Chest-supported" },
+    { name: "Chest-Supported Machine Row", muscle: "back", sets: 2, reps: 11, rir: 1, notes: "Neutral grip, drive elbows back" },
     { name: "Incline DB Press", muscle: "chest", sets: 2, reps: 9, rir: 1, notes: "~30°. Chaves 2020." },
     { name: "Hammer Curl", muscle: "biceps", sets: 2, reps: 11, rir: 1, notes: null },
     { name: "Cable Face Pull", muscle: "rear-delts", sets: 3, reps: 13, rir: 1, notes: null },
@@ -52,19 +53,15 @@ const ACCESSORY = {
     { name: "Weighted Hanging Leg Raise", muscle: "abs", sets: 3, reps: 10, rir: 1, notes: "DB between feet or ankle weights. Full hang at bottom; legs above parallel at top; 3-sec eccentric." },
   ],
   upper_b: [
-    { name: "Chest-Supported Smith Row", muscle: "back", sets: 3, reps: 9, rir: 1, notes: "1.5x shoulder-width grip; pull to bottom of pec" },
-    { name: "Cable Lat Pullover", muscle: "back", sets: 2, reps: 13, rir: 1, notes: "Lat in fully lengthened overhead position (Wolf 2023). High pulley, arms nearly straight; pull from overhead to thighs by shoulder extension only." },
-    { name: "Incline DB Press", muscle: "chest", sets: 2, reps: 11, rir: 1, notes: "~30°" },
+    { name: "Chest-Supported Smith Row", muscle: "back", sets: 4, reps: 9, rir: 1, notes: "1.5x shoulder-width grip; pull to bottom of pec" },
     { name: "One-Arm Lat Pulldown", muscle: "back", sets: 2, reps: 11, rir: 1, notes: "Kneeling" },
     { name: "Reverse Pec Deck", muscle: "rear-delts", sets: 2, reps: 12, rir: 1, notes: "Rear delt isolation. Reverse DB Fly if no machine." },
     { name: "Cable Lateral Raise", muscle: "side-delts", sets: 3, reps: 12, rir: 1, notes: "Lean-away" },
     { name: "Overhead Cable Triceps Extension", muscle: "triceps", sets: 2, reps: 13, rir: 0, notes: "Rope" },
     { name: "Preacher Curl", muscle: "biceps", sets: 2, reps: 10, rir: 1, notes: "Biceps short head, arm-in-front position." },
-    { name: "Ab Wheel Rollout", muscle: "abs", sets: 3, reps: 10, rir: 1, notes: "Anti-extension, lengthened-position ab loading. Brace abs hard; do not let lower back arch. 2-3 sec slow eccentric, brief pause at full extension." },
   ],
   upper_c: [
     { name: "Close-Grip Bench Press", muscle: "triceps", sets: 2, reps: 7, rir: 2, notes: null },
-    { name: "Weighted Dip", muscle: "chest", sets: 2, reps: 9, rir: 1, notes: "Or machine chest press" },
     { name: "Overhead Cable Triceps Extension", muscle: "triceps", sets: 3, reps: 11, rir: 1, notes: "Rope. Maeo 2023 long head." },
     { name: "Incline DB Curl", muscle: "biceps", sets: 2, reps: 11, rir: 1, notes: null },
     { name: "Cable Lateral Raise", muscle: "side-delts", sets: 2, reps: 13, rir: 0, notes: null },

@@ -76,6 +76,13 @@ export interface MainLiftSignal {
   trainingMax: number | null;
   recentTmBumps: number; // TM increases in the last ~6 weeks
   projectedTestE1rm: number | null; // linear projection to the test week
+  // What the program last PRESCRIBED for this lift (weight × reps, % of TM).
+  // Sub-maximal by design — the lifter's real ceiling is trainingMax / e1rm, NOT
+  // this. Present so the coach never mistakes a programmed back-off for a max.
+  lastPrescribed: PrescribedTopSet | null;
+  // How many of the logged days for this lift were genuine max efforts (AMRAP /
+  // near-failure / test) — i.e. how much real strength signal the trend rests on.
+  maxEffortDays: number;
 }
 
 export interface AssistanceSignal {
@@ -134,11 +141,29 @@ function effReps(set: InsightSet): number {
   return set.reps + Math.max(0, Math.min(5, set.rir ?? 0));
 }
 
+// Is this a genuine MAX-strength signal, vs a programmed sub-maximal set?
+// On a % -of-training-max wave program the prescribed top sets are deliberately
+// NOT taken to failure — their raw e1RM tracks the wave (the prescribed %), not
+// the lifter, so they must not feed the strength trend. Only count:
+//   • AMRAP top sets (open-ended reps → real performance signal),
+//   • sets taken near failure (RIR ≤ 1 → a true effort), or
+//   • 1RM test attempts.
+// This is what stops a programmed "205×3" from reading as the bench regressing.
+function isStrengthEffort(s: InsightSet): boolean {
+  if (s.isWarmup || s.reps <= 0) return false;
+  if (s.isAmrap) return true;
+  if (s.exerciseName.includes("1RM Test")) return true;
+  return s.rir != null && s.rir <= 1;
+}
+
 // Best e1RM per training day for the given exercises, oldest → newest.
-function e1rmByDay(sets: InsightSet[], names: Set<string>): number[] {
+// `onlyMaxEfforts` restricts to genuine strength signals (see isStrengthEffort)
+// — used for the main lifts so programmed sub-maximal work can't drag the trend.
+function e1rmByDay(sets: InsightSet[], names: Set<string>, onlyMaxEfforts = false): number[] {
   const m = new Map<string, number>();
   for (const s of sets) {
     if (s.isWarmup || s.reps <= 0 || !names.has(s.exerciseName)) continue;
+    if (onlyMaxEfforts && !isStrengthEffort(s)) continue;
     const e = epley(s.weight, effReps(s));
     const day = s.completedAt.slice(0, 10);
     if (e > (m.get(day) ?? 0)) m.set(day, e);
@@ -146,6 +171,37 @@ function e1rmByDay(sets: InsightSet[], names: Set<string>): number[] {
   return Array.from(m.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([, e]) => e);
+}
+
+// The most recent PRESCRIBED top set for a lift — what the program last told the
+// lifter to do (weight × reps and the % of training max). Surfaced so the coach
+// understands a low logged e1RM is a programmed back-off, not a failed max.
+interface PrescribedTopSet {
+  weight: number;
+  reps: number;
+  percentageOfTm: number | null;
+}
+function lastPrescribedTopSet(sets: InsightSet[], names: Set<string>): PrescribedTopSet | null {
+  let day: string | null = null;
+  for (const s of sets) {
+    if (s.isWarmup || !names.has(s.exerciseName) || s.weightPrescribed == null) continue;
+    const d = s.completedAt.slice(0, 10);
+    if (day == null || d > day) day = d;
+  }
+  if (day == null) return null;
+  let best: PrescribedTopSet | null = null;
+  for (const s of sets) {
+    if (s.isWarmup || !names.has(s.exerciseName) || s.weightPrescribed == null) continue;
+    if (s.completedAt.slice(0, 10) !== day) continue;
+    if (!best || s.weightPrescribed > best.weight) {
+      best = {
+        weight: Math.round(s.weightPrescribed),
+        reps: s.repsPrescribed ?? s.reps,
+        percentageOfTm: s.percentageOfTm ?? null,
+      };
+    }
+  }
+  return best;
 }
 
 function trendFromSeries(series: number[]): LiftTrend | null {
@@ -260,23 +316,36 @@ export function buildCoachContext({
 
   const mainLifts: MainLiftSignal[] = MAIN_LIFTS.map((m) => {
     const names = new Set(m.exercises);
-    const series = e1rmByDay(sets, names);
+    // Strength trend rests ONLY on genuine max efforts (AMRAP / near-failure /
+    // test) so programmed sub-maximal waves can't fake a regression. Fall back to
+    // the full series purely for a display e1RM when no max efforts exist yet.
+    const strengthSeries = e1rmByDay(sets, names, true);
+    const anySeries = e1rmByDay(sets, names);
     const grp = strengthByKey.get(m.label);
     const rirs = topSetRirByDay(sets, names);
     const tm = tmInfo.find((t) => t.liftName === m.liftName);
+    const displayE1rm =
+      grp?.e1rm ??
+      (strengthSeries.length
+        ? Math.round(strengthSeries[strengthSeries.length - 1])
+        : anySeries.length
+          ? Math.round(anySeries[anySeries.length - 1])
+          : null);
     return {
       lift: m.label,
       level: grp?.level ?? null,
       score: grp?.score ?? null,
-      e1rm: grp?.e1rm ?? (series.length ? Math.round(series[series.length - 1]) : null),
-      startE1rm: series.length ? Math.round(series[0]) : null,
-      trend: trendFromSeries(series),
-      sessionsLogged: series.length,
+      e1rm: displayE1rm,
+      startE1rm: strengthSeries.length ? Math.round(strengthSeries[0]) : null,
+      trend: trendFromSeries(strengthSeries),
+      sessionsLogged: anySeries.length,
       topSetRirTrend: rirTrendFrom(rirs),
       lastAmrapReps: latestAmrapReps(sets, names),
       trainingMax: tm?.trainingMax ?? null,
       recentTmBumps: tm?.recentBumps ?? 0,
-      projectedTestE1rm: projectTestE1rm(series, weeksElapsed, weeksToTest),
+      projectedTestE1rm: projectTestE1rm(strengthSeries, weeksElapsed, weeksToTest),
+      lastPrescribed: lastPrescribedTopSet(sets, names),
+      maxEffortDays: strengthSeries.length,
     };
   });
 
@@ -346,8 +415,15 @@ This is a 14-week BENCH + SQUAT SPECIALIZATION program. The whole point is to dr
 
 The ONLY time you should suggest pulling back pressing is when recoveryConcern is true (the bench is stalling/regressing AND top sets are grinding closer to failure). If recoveryConcern is false, treat high pressing as on-plan and do not flag it.
 
+HOW TO READ STRENGTH — DO NOT GET THIS WRONG:
+This is a percentage-of-training-max wave program. Almost every prescribed main-lift set is SUB-MAXIMAL BY DESIGN — the program tells the lifter to do, say, 205×3 at ~75% of their training max. That is NOT a max attempt and says nothing about whether they got weaker. NEVER infer regression from the weight or reps of a programmed set. Read the fields exactly as defined:
+- trainingMax is the program's working anchor and e1rm is the lifter's best estimated one-rep max. THESE are the real strength numbers. A lifter benching a programmed 205×3 may well have a trainingMax of 245+ — judge their bench off trainingMax / e1rm / lastPrescribed.percentageOfTm, never off the raw programmed load.
+- lastPrescribed = {weight, reps, percentageOfTm}: what the program last PRESCRIBED for that lift. It is the planned dose, not a ceiling. If percentageOfTm is well under 100, of course the weight is below their max — that is the plan working, not a problem.
+- trend is computed ONLY from genuine max efforts (AMRAP sets, near-failure sets, and 1RM tests) — programmed sub-maximal sets are excluded, so trend is a HONEST strength direction. maxEffortDays tells you how many such efforts it rests on: if it is 0 or 1, trend is "new" — say strength is "too early to call from the data," do NOT claim regression, and lean on trainingMax, recentTmBumps and lastAmrapReps instead.
+- The true progress signals on this program are: training max going up (recentTmBumps > 0), AMRAP sets beating their prescribed reps (lastAmrapReps vs lastPrescribed.reps), and trend = up. If the bench is flat with few max efforts, that is normal mid-block accumulation, not a stall.
+
 Lead your digest with the question that actually matters: IS THE BENCH MOVING, and is recovery holding? Use the data:
-- mainLifts: per focus lift — level, score (% of a bodyweight-scaled intermediate standard, 100 = solid intermediate), current e1RM, startE1rm, trend (up/flat/down/new), topSetRirTrend ("falling" = sets grinding closer to failure = fatigue; "rising" = easier/more in reserve), lastAmrapReps, trainingMax, recentTmBumps, projectedTestE1rm (linear projection to the test week).
+- mainLifts: per focus lift — level, score (% of a bodyweight-scaled intermediate standard, 100 = solid intermediate), current e1RM (real estimated max), startE1rm, trend (up/flat/down/new — max efforts only), maxEffortDays (how much real signal the trend has), topSetRirTrend ("falling" = sets grinding closer to failure = fatigue; "rising" = easier/more in reserve), lastAmrapReps, lastPrescribed (the program's last prescribed top set — sub-maximal by design), trainingMax, recentTmBumps, projectedTestE1rm (linear projection to the test week).
 - benchAssistance: trends of the lifts that drive the bench — use these for WEAK-POINT diagnosis. If the bench is flat/down, point at the likely limiter: lagging triceps work (Close-Grip, Overhead Triceps Extension) → lockout; lagging incline/dip/OHP → off-the-chest/upper-pec & front-delt strength. Recommend bumping the specific lagging assistance, not generic advice.
 - volume: weekly hard sets per region vs MEV/MRV with a status and an emphasis flag. UNDER-MEV non-emphasis regions (rear delts, side delts, upper back, lats, traps) are the real opportunity — for a bencher these support the press and protect the shoulders. Recommend specific accessories (face pulls, reverse pec deck, chest-supported rows, lateral raises).
 - program: week / totalWeeks / weeksToTest — factor the timeline in. Early block: build. Near test week: sharpen, don't add fatigue.
@@ -356,5 +432,5 @@ Lead your digest with the question that actually matters: IS THE BENCH MOVING, a
 Output: a one-line headline summarizing the week, then 2-4 prioritized action items, highest priority first. Each item: a short imperative "title", a 1-2 sentence "detail" that cites the lifter's actual numbers, and a "tag" naming the lift or region. If the bench is progressing well, SAY SO and tell them to keep going — confirmation is valuable. If data is sparse, say so plainly and keep advice modest. No medical, injury, or nutrition diagnoses.`;
 
 export function coachUserPrompt(ctx: CoachContext): string {
-  return `Here is the lifter's current data snapshot:\n\n${JSON.stringify(ctx, null, 2)}\n\nReturn the coaching digest as JSON. Remember: high pressing volume is intended on this bench specialization program — only flag it if recoveryConcern is true.`;
+  return `Here is the lifter's current data snapshot:\n\n${JSON.stringify(ctx, null, 2)}\n\nReturn the coaching digest as JSON. Remember: (1) prescribed main-lift loads (lastPrescribed) are sub-maximal % -of-training-max work — judge bench strength off trainingMax / e1rm / trend, NEVER off a programmed set's weight; (2) high pressing volume is intended on this bench specialization program — only flag it if recoveryConcern is true.`;
 }
