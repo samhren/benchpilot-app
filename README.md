@@ -1,5 +1,9 @@
 # BenchPilot
 
+> **Note:** This is a public snapshot of my private `benchpilot` repository,
+> published with secrets and credentials removed. The private repo is the
+> source of truth; this mirror is for sharing the code.
+
 A personal, single-user, evidence-based lifting tracker. Runs a 14-week bench-focused program with science-driven Training Max (TM) progression: percentages of TM that auto-bump after AMRAP top sets per Greg Nuckols' rules. Built for Sam, gym, sweaty fingers.
 
 ## Stack
