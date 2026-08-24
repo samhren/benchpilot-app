@@ -262,7 +262,10 @@ export default async function Dashboard() {
             <StatCard
               label="Squat"
               value={squat?.currentOneRm ?? "—"}
-              sub={squat?.currentOneRm ? "75% 1RM programmed" : "set 1RM in Settings"}
+              // Squat is programmed by RIR target, not off a percentage of 1RM
+              // (see the `rir_target` rows in program_exercises) — the old
+              // "75% 1RM programmed" label described the bench wave, not this.
+              sub={squat?.currentOneRm ? "est. 1RM · RIR programmed" : "set 1RM in Settings"}
             />
           </Link>
         </div>

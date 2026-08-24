@@ -912,7 +912,14 @@ export async function resetProgramAction() {
   // never touches another account's data.
   await db.delete(workoutSets).where(eq(workoutSets.userId, userId));
   await db.delete(workoutSessions).where(eq(workoutSessions.userId, userId));
-  const [p] = await db.select().from(programs).where(eq(programs.userId, userId)).limit(1);
+  // Must be the ACTIVE program: a user who has restarted their plan also has
+  // archived ('completed') program rows, and an unfiltered select could reset
+  // one of those instead of the run they're actually on.
+  const [p] = await db
+    .select()
+    .from(programs)
+    .where(and(eq(programs.userId, userId), eq(programs.status, "active")))
+    .limit(1);
   if (p) {
     await db
       .update(programs)

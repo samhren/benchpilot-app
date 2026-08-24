@@ -28,6 +28,8 @@
     "db:converge-plan-all-users:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/converge-plan-all-users.ts",
     "db:migrate-multi-user": "tsx lib/db/migrate-multi-user.ts",
     "db:migrate-multi-user:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/migrate-multi-user.ts",
+    "db:restart-program": "RESTART_TARGET=dev tsx lib/db/restart-program.ts",
+    "db:restart-program:prod": "RESTART_TARGET=prod tsx lib/db/restart-program.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
