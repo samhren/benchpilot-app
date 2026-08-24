@@ -1,8 +1,5 @@
 import "dotenv/config";
 import { and, eq, isNotNull } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import * as schema from "./schema";
 import {
   lifts,
   programDays,
@@ -13,41 +10,10 @@ import {
   users,
   workoutSessions,
 } from "./schema";
+import { resolveScriptTarget } from "./script-target";
 import { roundForUnits, type Units } from "@/lib/programming/training-max";
 
-// Resolve the target DB explicitly rather than importing the app's shared `db`.
-// The other `db:*:prod` scripts shell-substitute `DATABASE_URL=$PROD_DATABASE_URL`,
-// which expands to an EMPTY string when the variable lives in `.env` but was
-// never exported — and an empty `DATABASE_URL` makes `lib/db/index.ts` fall back
-// to its localhost default. A migration that silently retargets dev instead of
-// prod is the worst possible failure mode for this script, so the target is
-// named explicitly (mirroring `DRIZZLE_TARGET` in drizzle.config.ts) and the
-// resolved host is printed before anything is written.
-const target = process.env.RESTART_TARGET ?? "dev";
-const resolvedUrl =
-  target === "prod"
-    ? process.env.PROD_DATABASE_URL
-    : process.env.DATABASE_URL ??
-      "postgresql://benchpilot:benchpilot_dev@localhost:5432/benchpilot";
-if (!resolvedUrl) {
-  throw new Error(
-    target === "prod"
-      ? "PROD_DATABASE_URL is not set. Add it to .env before running db:restart-program:prod."
-      : "DATABASE_URL is not set.",
-  );
-}
-
-const client = postgres(resolvedUrl, { prepare: false });
-const db = drizzle(client, { schema });
-
-function describeTarget(): string {
-  try {
-    const u = new URL(resolvedUrl!);
-    return `${u.hostname}:${u.port || "5432"}${u.pathname}`;
-  } catch {
-    return "(unparseable url)";
-  }
-}
+const { db, client, announce } = resolveScriptTarget("RESTART_TARGET");
 
 // Restart a user's 14-week program from week 1 after a training layoff, and cut
 // their training maxes to account for detraining.
@@ -278,10 +244,7 @@ async function main() {
   const tmCutFraction = Number(process.env.RESTART_TM_CUT ?? "0.1");
   const tmCutMarker = process.env.RESTART_TM_MARKER ?? `layoff-restart ${startDate}`;
 
-  if (target === "prod") {
-    console.log("\x1b[33m⚠  Targeting PRODUCTION database\x1b[0m");
-  }
-  console.log(`Target: ${target} → ${describeTarget()}`);
+  announce();
   console.log(
     `Restarting program for ${userName} at week 1 on ${startDate} (TM cut ${Math.round(
       tmCutFraction * 100,

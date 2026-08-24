@@ -32,7 +32,9 @@
     "db:restart-program:prod": "RESTART_TARGET=prod tsx lib/db/restart-program.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:swap-exercise": "SWAP_TARGET=dev tsx lib/db/swap-program-exercise.ts",
+    "db:swap-exercise:prod": "SWAP_TARGET=prod tsx lib/db/swap-program-exercise.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.2",
