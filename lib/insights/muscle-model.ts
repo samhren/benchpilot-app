@@ -187,6 +187,18 @@ export const EXERCISE_MODELS: Record<string, ExerciseModel> = {
       { region: "rear_delt", share: 0.05 },
     ],
   },
+  "T-Bar Row": {
+    // Chest-supported horizontal pull. Same profile as the other supported rows:
+    // upper-back primary, lats assisting. Without this entry it falls through
+    // fallbackRegion("back") and lands 100% on upper_back, which overstates
+    // upper-back volume and hides the lat/biceps contribution.
+    regions: [
+      { region: "upper_back", share: 0.45 },
+      { region: "lats", share: 0.3 },
+      { region: "biceps", share: 0.18 },
+      { region: "rear_delt", share: 0.07 },
+    ],
+  },
   "Seated Cable Row": {
     // Upper-back focused: grip + pull path to the mid-back drives rhomboids /
     // mid-traps; lats assist. (Vertical pulls remain lats-primary.)

@@ -22,10 +22,10 @@
     "db:apply-upper-b-tweaks:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/apply-upper-b-tweaks.ts",
     "db:apply-plan-v3-tweaks": "tsx lib/db/apply-plan-v3-tweaks.ts",
     "db:apply-plan-v3-tweaks:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/apply-plan-v3-tweaks.ts",
-    "db:set-accessory-plan": "tsx lib/db/set-accessory-plan.ts",
-    "db:set-accessory-plan:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/set-accessory-plan.ts",
-    "db:converge-plan-all-users": "tsx lib/db/converge-plan-all-users.ts",
-    "db:converge-plan-all-users:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/converge-plan-all-users.ts",
+    "db:set-accessory-plan": "PLAN_TARGET=dev tsx lib/db/set-accessory-plan.ts",
+    "db:set-accessory-plan:prod": "PLAN_TARGET=prod tsx lib/db/set-accessory-plan.ts",
+    "db:converge-plan-all-users": "PLAN_TARGET=dev tsx lib/db/converge-plan-all-users.ts",
+    "db:converge-plan-all-users:prod": "PLAN_TARGET=prod tsx lib/db/converge-plan-all-users.ts",
     "db:migrate-multi-user": "tsx lib/db/migrate-multi-user.ts",
     "db:migrate-multi-user:prod": "DATABASE_URL=$PROD_DATABASE_URL tsx lib/db/migrate-multi-user.ts",
     "db:restart-program": "RESTART_TARGET=dev tsx lib/db/restart-program.ts",
@@ -34,7 +34,9 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "db:swap-exercise": "SWAP_TARGET=dev tsx lib/db/swap-program-exercise.ts",
-    "db:swap-exercise:prod": "SWAP_TARGET=prod tsx lib/db/swap-program-exercise.ts"
+    "db:swap-exercise:prod": "SWAP_TARGET=prod tsx lib/db/swap-program-exercise.ts",
+    "db:diff-plans": "DIFF_TARGET=dev tsx lib/db/diff-user-plans.ts",
+    "db:diff-plans:prod": "DIFF_TARGET=prod tsx lib/db/diff-user-plans.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.2",

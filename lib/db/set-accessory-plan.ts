@@ -1,11 +1,12 @@
 import "dotenv/config";
-import { and, eq, isNotNull, notInArray } from "drizzle-orm";
-import { db } from "./index";
+import { and, eq, inArray, isNotNull, notInArray, or } from "drizzle-orm";
+import { resolveScriptTarget } from "./script-target";
 import {
   exercises,
   lifts,
   programDays,
   programExercises,
+  programs,
   workoutSessions,
   type liftNameEnum,
   type sessionTypeEnum,
@@ -25,6 +26,14 @@ import {
 type SessionType = (typeof sessionTypeEnum.enumValues)[number];
 type LiftName = (typeof liftNameEnum.enumValues)[number];
 
+// PLAN_TARGET=dev|prod. Named explicitly rather than relying on the older
+// `DATABASE_URL=$PROD_DATABASE_URL` npm-script trick: that expands to an EMPTY
+// string whenever PROD_DATABASE_URL lives in .env but was never exported into
+// the shell, and lib/db/index.ts then quietly connects somewhere other than
+// production while reporting success. See script-target.ts.
+const { db, client, announce } = resolveScriptTarget("PLAN_TARGET");
+export { db, client, announce };
+
 const TARGET_USER_ID = process.env.TARGET_USER_ID ?? "00000000-0000-0000-0000-000000000001";
 
 interface Item {
@@ -39,7 +48,7 @@ interface Item {
 const TARGET: Record<string, Item[]> = {
   upper_a: [
     { name: "Weighted Pull-up", sets: 3, reps: 7, rir: 2 },
-    { name: "Seated Cable Row", sets: 2, reps: 11, rir: 1 },
+    { name: "T-Bar Row", sets: 2, reps: 11, rir: 1 },
     { name: "Chest-Supported Machine Row", sets: 2, reps: 11, rir: 1 },
     { name: "Incline DB Press", sets: 2, reps: 9, rir: 1 },
     { name: "Hammer Curl", sets: 2, reps: 11, rir: 1 },
@@ -55,7 +64,7 @@ const TARGET: Record<string, Item[]> = {
     { name: "Weighted Hanging Leg Raise", sets: 3, reps: 10, rir: 1 },
   ],
   upper_b: [
-    { name: "Chest-Supported Smith Row", sets: 4, reps: 9, rir: 1 },
+    { name: "T-Bar Row", sets: 4, reps: 9, rir: 1 },
     { name: "One-Arm Lat Pulldown", sets: 2, reps: 11, rir: 1 },
     { name: "Reverse Pec Deck", sets: 2, reps: 12, rir: 1 },
     { name: "Cable Lateral Raise", sets: 3, reps: 12, rir: 1 },
@@ -82,7 +91,7 @@ const TARGET: Record<string, Item[]> = {
 // a sensible muscle group (drives the insights region fallback).
 const CATALOG: Record<string, { muscleGroup: string; equipment: string | null }> = {
   "Weighted Pull-up": { muscleGroup: "back", equipment: "pull-up-bar" },
-  "Seated Cable Row": { muscleGroup: "back", equipment: "cable" },
+  "T-Bar Row": { muscleGroup: "back", equipment: "t-bar" },
   "Chest-Supported Machine Row": { muscleGroup: "back", equipment: "machine" },
   "Incline DB Press": { muscleGroup: "chest", equipment: "dumbbell" },
   "Hammer Curl": { muscleGroup: "biceps", equipment: "dumbbell" },
@@ -130,19 +139,65 @@ async function ensureExercise(name: string): Promise<string> {
   return row.id;
 }
 
+// Deload weeks keep the same weekly shape (Mon upper A / Tue lower A / Wed
+// upper B / Fri upper C / Sat lower B) and the same accessory work — only the
+// bench percentages drop. But their `program_days.session_type` is the single
+// value "deload", so keying the accessory plan off session type alone silently
+// skipped the entire deload week and left it on whatever plan it was seeded
+// with. Map those days back onto their profile by day-of-week.
+//
+// `test` week is deliberately NOT mapped: it is bench-only by design (a 1RM
+// attempt with no accessory work), so applying an accessory list there would
+// invent a day that was never meant to exist.
+const DELOAD_PROFILE_BY_DOW: Record<number, SessionType> = {
+  1: "upper_a",
+  2: "lower_a",
+  3: "upper_b",
+  5: "upper_c",
+  6: "lower_b",
+};
+
 async function unstartedDaysOfType(userId: string, sessionType: SessionType) {
   const started = await db
     .selectDistinct({ programDayId: workoutSessions.programDayId })
     .from(workoutSessions)
     .where(and(eq(workoutSessions.userId, userId), isNotNull(workoutSessions.programDayId)));
   const startedIds = started.map((s) => s.programDayId).filter((x): x is string => x != null);
-  const base = and(eq(programDays.sessionType, sessionType), eq(programDays.userId, userId));
+  // Scoped to the ACTIVE program. Without this, a user who has restarted their
+  // program (restart-program.ts archives the old one as `completed`) would also
+  // have the archived run's un-started days rewritten — silently editing the
+  // record of a program they already finished with.
+  const deloadDows = Object.entries(DELOAD_PROFILE_BY_DOW)
+    .filter(([, st]) => st === sessionType)
+    .map(([dow]) => Number(dow));
+
+  const matchesProfile = or(
+    eq(programDays.sessionType, sessionType),
+    deloadDows.length > 0
+      ? and(
+          eq(programDays.sessionType, "deload"),
+          inArray(programDays.dayOfWeek, deloadDows),
+        )
+      : undefined,
+  );
+  const base = and(matchesProfile, eq(programDays.userId, userId), eq(programs.status, "active"));
   const where = startedIds.length > 0 ? and(base, notInArray(programDays.id, startedIds)) : base;
   return db
-    .select({ id: programDays.id, weekNumber: programDays.weekNumber })
+    .select({
+      id: programDays.id,
+      weekNumber: programDays.weekNumber,
+      dayOfWeek: programDays.dayOfWeek,
+    })
     .from(programDays)
-    .where(where);
+    .innerJoin(programs, eq(programs.id, programDays.programId))
+    .where(where)
+    .orderBy(programDays.weekNumber, programDays.dayOfWeek);
 }
+
+// DRY_RUN=1 reports exactly what would change without writing anything. These
+// migrations are normally run straight at production, so being able to read the
+// diff first is the difference between a reviewed change and a hoped-for one.
+export const DRY_RUN = process.env.DRY_RUN === "1";
 
 // Converge ONE user's future (un-started) program days to the TARGET plan,
 // idempotently. Pass the shared catalog id map from resolveTargetExerciseIds().
@@ -174,12 +229,17 @@ export async function applyAccessoryPlanForUser(
           id: programExercises.id,
           exerciseId: programExercises.exerciseId,
           name: exercises.name,
+          sets: programExercises.sets,
+          reps: programExercises.reps,
+          rirTarget: programExercises.rirTarget,
+          orderIndex: programExercises.orderIndex,
         })
         .from(programExercises)
         .innerJoin(exercises, eq(exercises.id, programExercises.exerciseId))
         .where(eq(programExercises.programDayId, d.id));
 
       const targetIds = new Set(items.map((it) => exId.get(it.name)!));
+      const where = `w${d.weekNumber}-d${d.dayOfWeek} ${st}`;
 
       // Upsert each target item in order (bench occupies order 1 on upper days).
       for (let i = 0; i < items.length; i++) {
@@ -188,33 +248,55 @@ export async function applyAccessoryPlanForUser(
         const orderIndex = isUpper ? i + 2 : i + 1;
         const existing = rows.find((r) => r.exerciseId === id);
         if (existing) {
-          await db
-            .update(programExercises)
-            .set({ sets: it.sets, reps: it.reps, rirTarget: it.rir, orderIndex })
-            .where(eq(programExercises.id, existing.id));
+          // Only count and write a row that actually differs, so the reported
+          // numbers mean "what changed" rather than "what was visited" — that
+          // is what makes a re-run visibly a no-op.
+          const same =
+            existing.sets === it.sets &&
+            existing.reps === it.reps &&
+            existing.rirTarget === it.rir &&
+            existing.orderIndex === orderIndex;
+          if (same) continue;
+          console.log(
+            `    ~ ${where}: ${it.name} ${existing.sets}x${existing.reps} rir${existing.rirTarget} ` +
+              `(#${existing.orderIndex}) → ${it.sets}x${it.reps} rir${it.rir} (#${orderIndex})`,
+          );
+          if (!DRY_RUN) {
+            await db
+              .update(programExercises)
+              .set({ sets: it.sets, reps: it.reps, rirTarget: it.rir, orderIndex })
+              .where(eq(programExercises.id, existing.id));
+          }
           totUpdated += 1;
         } else {
-          await db.insert(programExercises).values({
-            userId,
-            programDayId: d.id,
-            orderIndex,
-            exerciseId: id,
-            prescriptionType: "rir_target",
-            sets: it.sets,
-            reps: it.reps,
-            rirTarget: it.rir,
-            isAmrapTopSet: false,
-            liftId: it.liftName ? liftId.get(it.liftName) ?? null : null,
-          });
+          console.log(`    + ${where}: ${it.name} ${it.sets}x${it.reps} rir${it.rir} (#${orderIndex})`);
+          if (!DRY_RUN) {
+            await db.insert(programExercises).values({
+              userId,
+              programDayId: d.id,
+              orderIndex,
+              exerciseId: id,
+              prescriptionType: "rir_target",
+              sets: it.sets,
+              reps: it.reps,
+              rirTarget: it.rir,
+              isAmrapTopSet: false,
+              liftId: it.liftName ? liftId.get(it.liftName) ?? null : null,
+            });
+          }
           totInserted += 1;
         }
       }
 
-      // Delete anything not in the target — except the bench wave row(s).
+      // Delete anything not in the target — except the bench wave row(s), which
+      // carry the bench prescription and are never touched by this migration.
       for (const r of rows) {
         if (r.name.startsWith("Bench Press")) continue;
         if (!targetIds.has(r.exerciseId)) {
-          await db.delete(programExercises).where(eq(programExercises.id, r.id));
+          console.log(`    - ${where}: ${r.name} ${r.sets}x${r.reps}`);
+          if (!DRY_RUN) {
+            await db.delete(programExercises).where(eq(programExercises.id, r.id));
+          }
           totDeleted += 1;
         }
       }

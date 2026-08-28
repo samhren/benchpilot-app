@@ -38,7 +38,7 @@ export interface PlannedExercise {
 const ACCESSORY = {
   upper_a: [
     { name: "Weighted Pull-up", muscle: "back", sets: 3, reps: 7, rir: 2, notes: "Or lat pulldown" },
-    { name: "Seated Cable Row", muscle: "back", sets: 2, reps: 11, rir: 1, notes: "Chest-supported" },
+    { name: "T-Bar Row", muscle: "back", sets: 2, reps: 11, rir: 1, notes: "Chest-supported. Neutral grip, drive elbows back." },
     { name: "Chest-Supported Machine Row", muscle: "back", sets: 2, reps: 11, rir: 1, notes: "Neutral grip, drive elbows back" },
     { name: "Incline DB Press", muscle: "chest", sets: 2, reps: 9, rir: 1, notes: "~30°. Chaves 2020." },
     { name: "Hammer Curl", muscle: "biceps", sets: 2, reps: 11, rir: 1, notes: null },
@@ -53,7 +53,7 @@ const ACCESSORY = {
     { name: "Weighted Hanging Leg Raise", muscle: "abs", sets: 3, reps: 10, rir: 1, notes: "DB between feet or ankle weights. Full hang at bottom; legs above parallel at top; 3-sec eccentric." },
   ],
   upper_b: [
-    { name: "Chest-Supported Smith Row", muscle: "back", sets: 4, reps: 9, rir: 1, notes: "1.5x shoulder-width grip; pull to bottom of pec" },
+    { name: "T-Bar Row", muscle: "back", sets: 4, reps: 9, rir: 1, notes: "1.5x shoulder-width grip; pull to bottom of pec" },
     { name: "One-Arm Lat Pulldown", muscle: "back", sets: 2, reps: 11, rir: 1, notes: "Kneeling" },
     { name: "Reverse Pec Deck", muscle: "rear-delts", sets: 2, reps: 12, rir: 1, notes: "Rear delt isolation. Reverse DB Fly if no machine." },
     { name: "Cable Lateral Raise", muscle: "side-delts", sets: 3, reps: 12, rir: 1, notes: "Lean-away" },
