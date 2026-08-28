@@ -1,0 +1,72 @@
+# BenchPilot production stack for Dokploy.
+#
+# NOTE: this is NOT the local dev stack. `docker-compose.yml` in this repo is the
+# local dev Postgres on port 5433 and is unrelated. In Dokploy set the
+# **Compose Path** to `./docker-compose.prod.yml` or it will deploy the wrong file.
+#
+# Postgres is not published to the host; only the app talks to it over
+# `app_network`. Dokploy's Traefik attaches its own network to route the domain.
+
+x-app-environment: &app-environment
+  DATABASE_URL: "postgresql://${POSTGRES_USER:-benchpilot}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-benchpilot}"
+  SESSION_SECRET: "${SESSION_SECRET:?Set SESSION_SECRET}"
+  APP_PASSWORD: "${APP_PASSWORD:?Set APP_PASSWORD}"
+  GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+  GEMINI_MODEL: "${GEMINI_MODEL:-}"
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-benchpilot}"
+      POSTGRES_USER: "${POSTGRES_USER:-benchpilot}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}"
+      # Keep the cluster in a subdirectory of the mount. The official PG18 image
+      # moved its default PGDATA, and pinning it here keeps the volume layout
+      # stable across image upgrades. This also matches how Railway stored it.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app_network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      PORT: "3000"
+    expose:
+      - "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # /signin is the one public route in middleware.ts, so a 200 here proves
+      # the server is rendering without needing an authenticated session.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/signin"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      app_network:
+        aliases:
+          - benchpilot-app
+
+volumes:
+  postgres_data:
+
+networks:
+  app_network:

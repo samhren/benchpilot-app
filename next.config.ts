@@ -11,6 +11,9 @@ const withSerwist = withSerwistInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Emit .next/standalone so the Docker image ships only the traced server
+  // bundle instead of the full node_modules tree. See Dockerfile.
+  output: "standalone",
   // Railway mounts .next/cache as a persistent volume. Reusing webpack's
   // filesystem cache across deploys once shipped a stale React client-reference
   // manifest — a conditionally-rendered client component (MissedDayBanner) was
