@@ -394,9 +394,9 @@ export async function getSessionExercises(sessionId: string) {
 // A 0-set session this old was started but never trained — the user opened a
 // workout, logged nothing, and walked away. Nothing to resume.
 const STALE_PHANTOM_MS = 3 * 60 * 60 * 1000;
-// A session with sets logged but never completed, this far past any plausible
-// workout length, has been abandoned mid-way.
-const STALE_ABANDONED_MS = 12 * 60 * 60 * 1000;
+// A session with sets logged but never submitted, this far past any plausible
+// workout length: the lifter trained and forgot to hit submit.
+const STALE_UNSUBMITTED_MS = 12 * 60 * 60 * 1000;
 
 export async function getInProgressSession() {
   const userId = await requireUserId();
@@ -418,29 +418,51 @@ export async function getInProgressSession() {
 
   const now = Date.now();
   for (const row of rows) {
-    const [setCountRow] = await db
-      .select({ c: sql<number>`count(*)` })
+    const [setStats] = await db
+      .select({
+        c: sql<number>`count(*)`,
+        lastAt: sql<string | null>`max(${workoutSets.completedAt})`,
+      })
       .from(workoutSets)
       .where(eq(workoutSets.sessionId, row.s.id));
-    const setsLogged = Number(setCountRow?.c ?? 0);
+    const setsLogged = Number(setStats?.c ?? 0);
     const ageMs = now - (row.s.startedAt as Date).getTime();
 
-    // Phantom: started, never trained, gone stale. Hard-delete it — there's
-    // nothing to preserve, and opening the day again rebuilds an identical
-    // snapshot. This is what kept the resume banner nagging for days after an
-    // accidental "Start workout" tap.
+    // Nothing here may delete a session. This runs on every app render (the
+    // layout calls it), and a session with 0 *server* sets can still have a
+    // whole workout sitting in the client's unsynced buffer — deleting it
+    // orphaned that buffer and silently lost the workout.
+
+    // Phantom: started, nothing logged, gone stale. Stop the resume banner
+    // nagging; reopening the day revives this same session (startSessionAction).
     if (setsLogged === 0 && ageMs > STALE_PHANTOM_MS) {
-      await db
-        .delete(workoutSessions)
-        .where(and(eq(workoutSessions.id, row.s.id), eq(workoutSessions.userId, userId)));
-      continue;
-    }
-    // Real workout abandoned mid-way: keep the logged sets but stop nagging.
-    if (setsLogged > 0 && ageMs > STALE_ABANDONED_MS) {
       await db
         .update(workoutSessions)
         .set({ status: "abandoned" })
         .where(and(eq(workoutSessions.id, row.s.id), eq(workoutSessions.userId, userId)));
+      continue;
+    }
+    // Trained but never submitted: finalize it as a partial workout, stamped
+    // at the last logged set, so it counts toward the program and shows in
+    // history instead of the day reading as missed.
+    if (setsLogged > 0 && ageMs > STALE_UNSUBMITTED_MS) {
+      await db
+        .update(workoutSessions)
+        .set({
+          status: "partial",
+          completedAt: setStats?.lastAt ? new Date(setStats.lastAt) : new Date(),
+        })
+        .where(and(eq(workoutSessions.id, row.s.id), eq(workoutSessions.userId, userId)));
+      await db
+        .update(sessionExercises)
+        .set({ status: "skipped" })
+        .where(
+          and(
+            eq(sessionExercises.sessionId, row.s.id),
+            eq(sessionExercises.userId, userId),
+            eq(sessionExercises.status, "pending"),
+          ),
+        );
       continue;
     }
 

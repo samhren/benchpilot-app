@@ -10,6 +10,7 @@ import {
   getLastCompletedSessionAt,
   getMissedDays,
   getScheduledDayCandidate,
+  getProgramDay,
   getProgramExercises,
   getSettings,
 } from "@/lib/queries";
@@ -42,9 +43,18 @@ export default async function Dashboard() {
   const week = progress.week;
   const dow = dayOfWeekInTz(today, tz);
 
-  const candidate = await getScheduledDayCandidate(program.id, today, tz);
-  const next = candidate?.pd ?? null;
   const inProgress = await getInProgressSession();
+  // A workout in progress owns the card: its title and preview must match the
+  // "Resume workout" button, not whatever day the schedule would offer next.
+  const inProgressDay =
+    inProgress && !inProgress.isExtra && inProgress.programDayId
+      ? await getProgramDay(inProgress.programDayId)
+      : null;
+  const scheduled = inProgressDay ? null : await getScheduledDayCandidate(program.id, today, tz);
+  const candidate = inProgressDay
+    ? { pd: inProgressDay, reason: "in_progress" as const, scheduledDate: null, label: "In progress" }
+    : scheduled;
+  const next = candidate?.pd ?? null;
   const missed = await getMissedDays(program.id, today, tz);
   const lastCompletedAt = await getLastCompletedSessionAt();
   const showLongGap = shouldSuggestLongGapDeload(lastCompletedAt, today);

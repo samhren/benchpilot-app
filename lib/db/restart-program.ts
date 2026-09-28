@@ -3,7 +3,6 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import {
   lifts,
   programDays,
-  programExercises,
   programs,
   settings,
   tmHistory,
@@ -11,6 +10,7 @@ import {
   workoutSessions,
 } from "./schema";
 import { resolveScriptTarget } from "./script-target";
+import { cloneProgram } from "./program-clone";
 import { roundForUnits, type Units } from "@/lib/programming/training-max";
 
 const { db, client, announce } = resolveScriptTarget("RESTART_TARGET");
@@ -107,85 +107,12 @@ export async function restartProgramForUser(opts: RestartOptions) {
       `  program: already restarted (active program starts ${startDate} with no logged days) — skipping clone`,
     );
   } else {
-    const oldDays = await db
-      .select()
-      .from(programDays)
-      .where(eq(programDays.programId, active.id))
-      .orderBy(programDays.weekNumber, programDays.dayOfWeek);
-    if (oldDays.length === 0) {
-      throw new Error(`Active program ${active.id} has no program_days to clone`);
-    }
-    const oldDayIds = oldDays.map((d) => d.id);
-    const oldExercises = await db
-      .select()
-      .from(programExercises)
-      .where(eq(programExercises.userId, user.id));
-    const exByDay = new Map<string, typeof oldExercises>();
-    for (const pe of oldExercises) {
-      if (!oldDayIds.includes(pe.programDayId)) continue;
-      const list = exByDay.get(pe.programDayId) ?? [];
-      list.push(pe);
-      exByDay.set(pe.programDayId, list);
-    }
-
-    await db.transaction(async (tx) => {
-      const [created] = await tx
-        .insert(programs)
-        .values({
-          userId: user.id,
-          name: programName,
-          startDate,
-          totalWeeks: active.totalWeeks,
-          currentWeek: 1,
-          currentBlock: "1",
-          status: "active",
-        })
-        .returning();
-      newProgramId = created.id;
-
-      for (const d of oldDays) {
-        const [pd] = await tx
-          .insert(programDays)
-          .values({
-            userId: user.id,
-            programId: created.id,
-            weekNumber: d.weekNumber,
-            dayOfWeek: d.dayOfWeek,
-            sessionType: d.sessionType,
-            displayName: d.displayName,
-          })
-          .returning();
-        clonedDays += 1;
-
-        const src = exByDay.get(d.id) ?? [];
-        if (src.length === 0) continue;
-        await tx.insert(programExercises).values(
-          src.map((e) => ({
-            userId: user.id,
-            programDayId: pd.id,
-            orderIndex: e.orderIndex,
-            exerciseId: e.exerciseId,
-            prescriptionType: e.prescriptionType,
-            sets: e.sets,
-            reps: e.reps,
-            percentageOfTm: e.percentageOfTm,
-            rirTarget: e.rirTarget,
-            isAmrapTopSet: e.isAmrapTopSet,
-            notes: e.notes,
-            liftId: e.liftId,
-            wavePlan: e.wavePlan,
-          })),
-        );
-        clonedExercises += src.length;
-      }
-
-      // Archive the old run. Its days keep every logged session, so all
-      // history and lift stats stay exactly as they were.
-      await tx
-        .update(programs)
-        .set({ status: "completed" })
-        .where(and(eq(programs.id, active.id), eq(programs.userId, user.id)));
-    });
+    const r = await db.transaction((tx) =>
+      cloneProgram(tx, active, { startDate, programName }),
+    );
+    newProgramId = r.program.id;
+    clonedDays = r.clonedDays;
+    clonedExercises = r.clonedExercises;
 
     console.log(
       `  program: cloned ${clonedDays} days / ${clonedExercises} exercises into new program ${newProgramId} starting ${startDate}`,

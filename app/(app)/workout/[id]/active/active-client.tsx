@@ -10,7 +10,7 @@ import {
   completeSessionAction,
   discardSessionAction,
   endSessionEarlyAction,
-  stampFirstSetAction,
+  logSetAction,
   saveSessionSetsAction,
   setSessionExerciseNotesAction,
   swapSessionExerciseAction,
@@ -46,6 +46,22 @@ import { ReviewSheet } from "./_components/ReviewSheet";
 import { useRestTimer } from "./_hooks/useRestTimer";
 
 export type { SetRow, SessionExerciseEntry };
+
+// Server payload for one logged set.
+function setPayload(row: SetRow, b: BufferedSet) {
+  return {
+    sessionExerciseId: row.sessionExerciseId,
+    exerciseId: row.exerciseId,
+    setNumber: row.setNumber,
+    repsPrescribed: row.repsPrescribed,
+    repsCompleted: b.repsCompleted,
+    weightPrescribed: row.weightPrescribed,
+    weightUsed: b.weightUsed,
+    rir: b.rir,
+    isAmrap: row.isAmrap,
+    isWarmup: false,
+  };
+}
 
 interface Props {
   sessionId: string;
@@ -236,6 +252,21 @@ export default function ActiveWorkout({
     } catch {}
   }, [setLog, pendingBump, setLogStorageKey, setLogHydrated]);
 
+  // Once hydrated, push any buffered sets the server doesn't have yet — sets
+  // logged while offline, or before sets were persisted one at a time.
+  const flushedAfterHydrationRef = useRef(false);
+  useEffect(() => {
+    if (!setLogHydrated || flushedAfterHydrationRef.current) return;
+    flushedAfterHydrationRef.current = true;
+    const unsynced = rows.flatMap((r) => {
+      const b = setLog[logKey(r)];
+      return b && !r.logged ? [setPayload(r, b)] : [];
+    });
+    if (unsynced.length > 0) {
+      saveSessionSetsAction({ sessionId, sets: unsynced }).catch(() => null);
+    }
+  }, [setLogHydrated, setLog, rows, sessionId]);
+
   const jumpedAfterHydrationRef = useRef(false);
   useEffect(() => {
     if (!setLogHydrated || jumpedAfterHydrationRef.current) return;
@@ -390,9 +421,11 @@ export default function ActiveWorkout({
       const t = Date.now();
       setFirstSetAt(t);
       try { localStorage.setItem(firstSetStorageKey, String(t)); } catch {}
-      // Fire-and-forget server stamp. Idempotent and authoritative.
-      stampFirstSetAction(sessionId).catch(() => null);
     }
+    // Persist the set to the server right away (it also stamps first_set_at).
+    // The localStorage buffer is only a fallback: if this fails (offline), the
+    // set stays buffered and is flushed on reload or at submit.
+    logSetAction({ sessionId, ...setPayload(current, buffered) }).catch(() => null);
 
     // Editing an already-logged set: don't re-trigger AMRAP modal, don't advance.
     if (wasLoggedAlready) {
@@ -435,48 +468,28 @@ export default function ActiveWorkout({
   }
 
   function buildBufferPayload() {
-    const out: Array<{
-      sessionExerciseId: string;
-      exerciseId: string;
-      setNumber: number;
-      repsPrescribed: number | null;
-      repsCompleted: number;
-      weightPrescribed: number | null;
-      weightUsed: number;
-      rir: number | null;
-      isAmrap: boolean;
-      isWarmup: boolean;
-    }> = [];
+    const out: Array<ReturnType<typeof setPayload>> = [];
     for (const row of rows) {
       const b = setLog[logKey(row)];
       if (!b) continue;
-      out.push({
-        sessionExerciseId: row.sessionExerciseId,
-        exerciseId: row.exerciseId,
-        setNumber: row.setNumber,
-        repsPrescribed: row.repsPrescribed,
-        repsCompleted: b.repsCompleted,
-        weightPrescribed: row.weightPrescribed,
-        weightUsed: b.weightUsed,
-        rir: b.rir,
-        isAmrap: row.isAmrap,
-        isWarmup: false,
-      });
+      out.push(setPayload(row, b));
     }
     return out;
   }
 
   async function persistAndComplete(kind: "complete" | "early") {
-    const sets = buildBufferPayload();
-    if (kind === "complete" && sets.length === 0) {
-      toast.error("No sets logged yet");
-      return;
-    }
-    const save = await saveSessionSetsAction({ sessionId, sets }).catch(() => ({
-      ok: false as const,
-    }));
+    // Flush the whole buffer (idempotent merge), then judge emptiness by what
+    // the server holds — the local buffer may have been evicted while the
+    // server already has every set.
+    const save = await saveSessionSetsAction({ sessionId, sets: buildBufferPayload() }).catch(
+      () => ({ ok: false as const }),
+    );
     if (!save.ok) {
       toast.error("Save failed — try again");
+      return;
+    }
+    if (kind === "complete" && save.count === 0) {
+      toast.error("No sets logged yet");
       return;
     }
     if (pendingBump?.applied) {

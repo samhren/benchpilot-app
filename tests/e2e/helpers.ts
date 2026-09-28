@@ -1,11 +1,15 @@
+import "dotenv/config";
 import { expect, type Page } from "@playwright/test";
 import { resolveTrainingMax } from "@/lib/programming/training-max";
 
+// Seeded legacy user's PIN — lib/db/seed.ts uses APP_PASSWORD (default 5829).
+export const PIN = process.env.APP_PASSWORD ?? "5829";
+
 export async function signIn(page: Page) {
   await page.goto("/signin");
-  await page.getByTestId("password-input").fill("changeme");
+  await page.getByTestId("pin-input").fill(PIN);
   await page.getByTestId("signin-submit").click();
-  await page.waitForURL("http://localhost:3000/", { timeout: 10_000 });
+  await page.waitForURL((u) => u.pathname === "/", { timeout: 10_000 });
 }
 
 export async function setBenchOneRm(page: Page, oneRm: number) {

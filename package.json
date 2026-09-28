@@ -36,7 +36,9 @@
     "db:swap-exercise": "SWAP_TARGET=dev tsx lib/db/swap-program-exercise.ts",
     "db:swap-exercise:prod": "SWAP_TARGET=prod tsx lib/db/swap-program-exercise.ts",
     "db:diff-plans": "DIFF_TARGET=dev tsx lib/db/diff-user-plans.ts",
-    "db:diff-plans:prod": "DIFF_TARGET=prod tsx lib/db/diff-user-plans.ts"
+    "db:diff-plans:prod": "DIFF_TARGET=prod tsx lib/db/diff-user-plans.ts",
+    "db:sync-program-week": "SYNC_TARGET=dev tsx lib/db/sync-program-week.ts",
+    "db:sync-program-week:prod": "SYNC_TARGET=prod tsx lib/db/sync-program-week.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.2",

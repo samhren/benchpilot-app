@@ -160,6 +160,15 @@ export async function startSessionAction(
     .orderBy(desc(workoutSessions.startedAt))
     .limit(1);
   if (existing) {
+    // Reopening a day whose session went stale (see getInProgressSession)
+    // picks the same session back up — its logged sets and the client's
+    // localStorage buffer are both keyed by this session id.
+    if (existing.status !== "in_progress") {
+      await db
+        .update(workoutSessions)
+        .set({ status: "in_progress" })
+        .where(and(eq(workoutSessions.id, existing.id), eq(workoutSessions.userId, userId)));
+    }
     const wantsDifferentFactor =
       deloadFactor != null && Math.abs((existing.deloadFactor ?? 1) - deloadFactor) > 0.001;
     if (!wantsDifferentFactor) {
@@ -315,30 +324,66 @@ async function ownsSession(userId: string, sessionId: string): Promise<boolean> 
   return !!row;
 }
 
+const SaveSessionSetsSchema = z.object({
+  sessionId: z.string().uuid(),
+  sets: z.array(LogSetSchema.omit({ sessionId: true })),
+});
+
+// Write sets to the server, keyed by (session exercise, set number): a set that
+// already exists is replaced, every other logged set is left alone. Used both
+// per set, the moment it is logged, and once more at submit to flush anything
+// that didn't sync (e.g. logged offline).
+//
+// Merge — never "delete the session's sets, insert the buffer" — because the
+// client buffer lives in localStorage, which a home-screen PWA can lose
+// mid-workout (see CLAUDE.md). A replace-all save from an emptied buffer would
+// wipe sets the server already holds.
+async function upsertSessionSets(
+  userId: string,
+  sessionId: string,
+  sets: Array<z.infer<typeof LogSetSchema>>,
+) {
+  if (sets.length === 0) return;
+  await db.transaction(async (tx) => {
+    for (const s of sets) {
+      await tx
+        .delete(workoutSets)
+        .where(
+          and(
+            eq(workoutSets.userId, userId),
+            eq(workoutSets.sessionId, sessionId),
+            s.sessionExerciseId
+              ? eq(workoutSets.sessionExerciseId, s.sessionExerciseId)
+              : isNull(workoutSets.sessionExerciseId),
+            eq(workoutSets.exerciseId, s.exerciseId),
+            eq(workoutSets.setNumber, s.setNumber),
+          ),
+        );
+    }
+    await tx.insert(workoutSets).values(sets.map((s) => ({ ...s, sessionId, userId })));
+  });
+}
+
 export async function logSetAction(input: z.infer<typeof LogSetSchema>) {
   const userId = await requireUserId();
   const data = LogSetSchema.parse(input);
   if (!(await ownsSession(userId, data.sessionId))) {
     return { ok: false as const, error: "Session not found" };
   }
-  const [row] = await db
-    .insert(workoutSets)
-    .values({ ...data, userId })
-    .returning();
-  return { ok: true as const, set: row };
+  await upsertSessionSets(userId, data.sessionId, [data]);
+  // First logged set anchors the workout clock. Idempotent.
+  await db
+    .update(workoutSessions)
+    .set({ firstSetAt: new Date() })
+    .where(
+      and(
+        eq(workoutSessions.id, data.sessionId),
+        eq(workoutSessions.userId, userId),
+        isNull(workoutSessions.firstSetAt),
+      ),
+    );
+  return { ok: true as const };
 }
-
-const UpdateSetSchema = z.object({
-  id: z.string().uuid(),
-  repsCompleted: z.number().int().min(0),
-  weightUsed: z.number(),
-  rir: z.number().int().min(0).max(10).nullable(),
-});
-
-const SaveSessionSetsSchema = z.object({
-  sessionId: z.string().uuid(),
-  sets: z.array(LogSetSchema.omit({ sessionId: true })),
-});
 
 export async function saveSessionSetsAction(
   input: z.infer<typeof SaveSessionSetsSchema>,
@@ -348,50 +393,16 @@ export async function saveSessionSetsAction(
   if (!(await ownsSession(userId, sessionId))) {
     return { ok: false as const, error: "Session not found" };
   }
-  // Replace any prior workout_sets for this session with the buffered ones,
-  // so re-saving (or saving after edits) is idempotent.
-  await db
-    .delete(workoutSets)
-    .where(and(eq(workoutSets.sessionId, sessionId), eq(workoutSets.userId, userId)));
-  if (sets.length > 0) {
-    await db
-      .insert(workoutSets)
-      .values(sets.map((s) => ({ ...s, sessionId, userId })));
-  }
-  return { ok: true as const, count: sets.length };
-}
-
-export async function updateSetAction(input: z.infer<typeof UpdateSetSchema>) {
-  const userId = await requireUserId();
-  const data = UpdateSetSchema.parse(input);
+  await upsertSessionSets(
+    userId,
+    sessionId,
+    sets.map((s) => ({ ...s, sessionId })),
+  );
   const [row] = await db
-    .update(workoutSets)
-    .set({
-      repsCompleted: data.repsCompleted,
-      weightUsed: data.weightUsed,
-      rir: data.rir,
-    })
-    .where(and(eq(workoutSets.id, data.id), eq(workoutSets.userId, userId)))
-    .returning();
-  return { ok: true as const, set: row };
-}
-
-export async function stampFirstSetAction(sessionId: string) {
-  const userId = await requireUserId();
-  // Idempotent: only writes if first_set_at is still null.
-  const [s] = await db
-    .select({ firstSetAt: workoutSessions.firstSetAt })
-    .from(workoutSessions)
-    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)))
-    .limit(1);
-  if (!s) return { ok: false as const };
-  if (s.firstSetAt) return { ok: true as const, firstSetAt: (s.firstSetAt as Date).toISOString() };
-  const now = new Date();
-  await db
-    .update(workoutSessions)
-    .set({ firstSetAt: now })
-    .where(and(eq(workoutSessions.id, sessionId), eq(workoutSessions.userId, userId)));
-  return { ok: true as const, firstSetAt: now.toISOString() };
+    .select({ c: sql<number>`count(*)` })
+    .from(workoutSets)
+    .where(and(eq(workoutSets.sessionId, sessionId), eq(workoutSets.userId, userId)));
+  return { ok: true as const, count: Number(row?.c ?? 0) };
 }
 
 export async function completeSessionAction(sessionId: string) {
