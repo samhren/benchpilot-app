@@ -14,4 +14,4 @@
 // suspenders that also covers server-only changes and gives us a visible marker.
 //
 // Format: YYYY.MM.DD.N (N = the Nth release that day). Always move it forward.
-export const APP_VERSION = "2026.09.28.1";
+export const APP_VERSION = "2026.09.28.2";

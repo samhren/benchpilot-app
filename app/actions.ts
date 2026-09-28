@@ -17,7 +17,7 @@ import {
   workoutSessions,
   workoutSets,
 } from "@/lib/db/schema";
-import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { resolveTrainingMax, resolveBenchPrescription } from "@/lib/programming/training-max";
 import { applyAmrapBump } from "@/lib/programming/amrap";
 import { isCleanSquatSession } from "@/lib/programming/squat-progression";
@@ -144,7 +144,9 @@ export async function startSessionAction(
     .limit(1);
   if (!ownsDay) return { ok: false as const, error: "Program day not found" };
 
-  // Find an existing in-flight session for this day, or start new.
+  // Find an existing in-flight session for this day, or start new: a live
+  // one, or one auto-abandoned recently enough to still be the same workout
+  // (see getInProgressSession). Older abandoned sessions stay abandoned.
   // If deloadFactor differs from the existing session, scrap the snapshot and rebuild it
   // (only safe when no sets have been logged yet).
   const [existing] = await db
@@ -155,6 +157,13 @@ export async function startSessionAction(
         eq(workoutSessions.userId, userId),
         eq(workoutSessions.programDayId, programDayId),
         isNull(workoutSessions.completedAt),
+        or(
+          eq(workoutSessions.status, "in_progress"),
+          and(
+            eq(workoutSessions.status, "abandoned"),
+            gt(workoutSessions.startedAt, sql`now() - interval '12 hours'`),
+          ),
+        ),
       ),
     )
     .orderBy(desc(workoutSessions.startedAt))
